@@ -1,6 +1,14 @@
+import { dirname } from "node:path";
+import { fileURLToPath } from "node:url";
+
+const rootDir = dirname(fileURLToPath(import.meta.url));
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  /* config options here */
+  distDir: ".next-cache",
+  turbopack: {
+    root: rootDir,
+  },
 };
 
 export default nextConfig;

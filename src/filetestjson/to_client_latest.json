@@ -1,0 +1,284 @@
+{
+  "schema_version": 1,
+  "timestamp_ms": 975335,
+  "robot": {
+    "mode": "Idle",
+    "mode_id": 0,
+    "status_text": "IDLE  MAP NO",
+    "warning_active": false,
+    "emergency_stop": false,
+    "unified_gui_open": false
+  },
+  "drive": {
+    "forward_speed": 0.000000,
+    "steering_speed": 0.000000,
+    "fresh": true,
+    "emergency_stop": false,
+    "last_command": {
+      "type": "Stop",
+      "type_id": 1,
+      "source": "drive_controller",
+      "forward_speed": 0.000000,
+      "steering_speed": 0.000000,
+      "timestamp_ms": 0
+    }
+  },
+  "health": {
+    "valid": true,
+    "camera_available": true,
+    "lidar_available": false,
+    "joystick_connected": true,
+    "m5stick_available": true,
+    "detector_running": false,
+    "tracker_running": false,
+    "gui_running": false,
+    "fresh": {
+      "drive": true,
+      "detections": false,
+      "tracking": false,
+      "lidar": false,
+      "m5stick": true
+    },
+    "stale": {
+      "drive": false,
+      "detector": false,
+      "tracker": false,
+      "lidar": false,
+      "m5stick": false
+    }
+  },
+  "perception": {
+    "frame": {
+      "width": 0,
+      "height": 0,
+      "channels": 3,
+      "timestamp_ms": 0
+    },
+    "detections_valid": false,
+    "detections_fresh": false,
+    "detection_count": 0,
+    "best_detection": null,
+    "detections": [],
+    "tracking": {
+      "enabled": false,
+      "target_selected": false,
+      "confidence": 0.000000,
+      "target_offset_x": 0.000000,
+      "target_offset_y": 0.000000,
+      "fresh": false
+    }
+  },
+  "lidar": {
+    "snapshot": {
+      "valid": false,
+      "fresh": false,
+      "point_count": 0,
+      "timestamp_ms": 0,
+      "coordinate_frame": "robot_base_lidar_2d",
+      "units": {"x":"m","y":"m","distance":"m","angle":"deg"},
+      "point_cloud": []
+    },
+    "summary": {
+      "valid": false,
+      "fresh": false,
+      "front_m": -1.000000,
+      "left_m": -1.000000,
+      "right_m": -1.000000,
+      "rear_m": -1.000000,
+      "front_close": false,
+      "left_close": false,
+      "right_close": false,
+      "any_close": false
+    },
+    "pose": {
+      "valid": false,
+      "fresh": false,
+      "stale": false,
+      "scan_valid": false,
+      "enough_points": false,
+      "confidence": 0.000000,
+      "sectors_m": {
+        "front": -1.000000,
+        "front_left": -1.000000,
+        "left": -1.000000,
+        "rear_left": -1.000000,
+        "rear": -1.000000,
+        "rear_right": -1.000000,
+        "right": -1.000000,
+        "front_right": -1.000000
+      },
+      "nearest_m": -1.000000,
+      "nearest_sector_index": -1,
+      "lateral_balance_m": 0.000000,
+      "front_balance_m": 0.000000,
+      "rear_balance_m": 0.000000,
+      "center_error_m": 0.000000,
+      "heading_hint_deg": 0.000000,
+      "front_clearance_m": -1.000000,
+      "rear_clearance_m": -1.000000,
+      "obstacle_ahead": false,
+      "obstacle_rear": false,
+      "blocked": {
+        "front_left": false,
+        "front_right": false,
+        "left": false,
+        "right": false,
+        "rear_left": false,
+        "rear_right": false
+      }
+    },
+    "hints": {
+      "valid": false,
+      "fresh": false,
+      "stale": false,
+      "forward_clearance_ok": false,
+      "reverse_clearance_ok": false,
+      "corridor_centered": false,
+      "steer_correction_suggested": false,
+      "suggested_steer_sign": 0,
+      "suggested_steer_strength": 0.000000,
+      "reverse_correction_suggested": false,
+      "preferred_reverse_side": 0,
+      "reverse_preference_strength": 0.000000,
+      "center_error_m": 0.000000,
+      "heading_hint_deg": 0.000000,
+      "front_clearance_m": -1.000000,
+      "rear_clearance_m": -1.000000
+    }
+  },
+  "navigation": {
+    "valid": true,
+    "fresh": true,
+    "stale": false,
+    "yaw_valid": true,
+    "reference_initialized": true,
+    "estimated_pose": true,
+    "pose_source": "YawCmd",
+    "pose_source_id": 2,
+    "motion_state": "Stop",
+    "turn_state": "Straight",
+    "pose": {
+      "x_m": 0.013724,
+      "y_m": 0.000000,
+      "yaw_deg": -17.639893,
+      "yaw_zero_deg": -17.639893,
+      "yaw_relative_deg": 0.000000
+    },
+    "velocity": {
+      "linear_mps": 0.000000,
+      "angular_degps": 0.000000
+    },
+    "command": {
+      "forward": 0.000000,
+      "steering": 0.000000
+    },
+    "goal": {
+      "active": true,
+      "x_m": 0.180000,
+      "y_m": -0.070000,
+      "distance_m": 0.180409,
+      "bearing_deg": -22.830507,
+      "heading_error_deg": -22.830507,
+      "reached": false
+    },
+    "local_auto": {
+      "enabled": false,
+      "active": false,
+      "blocked_by_estop": true,
+      "forward_cmd": 0.000000,
+      "steering_cmd": 0.000000
+    },
+    "localized": false,
+    "map_ready": false,
+    "slam_active": false,
+    "tracking_lost": false
+  },
+  "odom": {
+    "valid": true,
+    "fresh": true,
+    "stale": false,
+    "yaw_valid": true,
+    "reference_initialized": true,
+    "integration_active": false,
+    "estimated_pose": true,
+    "pose_source": "None",
+    "pose_source_id": 0,
+    "pose": {
+      "x_m": 0.004235,
+      "y_m": 0.000000,
+      "yaw_deg": 0.000000
+    },
+    "velocity": {
+      "linear_mps": 0.000000,
+      "angular_degps": 0.000000
+    },
+    "command": {
+      "forward": 0.000000,
+      "steering": 0.000000
+    },
+    "raw_dt_sec": 0.004000,
+    "dt_sec": 0.020000
+  },
+  "m5stick": {
+    "connected": true,
+    "port_open": true,
+    "status_valid": true,
+    "status_fresh": false,
+    "status_stale": true,
+    "telemetry_valid": true,
+    "telemetry_fresh": true,
+    "telemetry_stale": false,
+    "imu": {
+      "enabled": true,
+      "hw_ok": true,
+      "read_ok": true,
+      "valid": true,
+      "fresh": true,
+      "stale": false,
+      "accel": {"x":-0.006958,"y":-0.997192,"z":-0.004517},
+      "gyro": {"x":-0.732422,"y":-0.793457,"z":-0.122070}
+    },
+    "env": {
+      "enabled": true,
+      "hw_ok": true,
+      "read_ok": true,
+      "valid": true,
+      "fresh": true,
+      "stale": false,
+      "temp_c": 29.757430,
+      "humidity_pct": 55.033740,
+      "pressure_hpa": 1011.340000,
+      "gas_kohm": 162.333000
+    }
+  },
+  "behavior": {
+    "obstacle_close": false,
+    "obstacle_front": false,
+    "obstacle_left": false,
+    "obstacle_right": false,
+    "target_lost": false,
+    "m5stick_warning": false,
+    "m5stick_disconnected": false,
+    "imu_offline": false,
+    "env_offline": false,
+    "nav_warning": false,
+    "slam_active": false,
+    "slam_lost": false,
+    "map_ready": false,
+    "pose_valid": true
+  },
+  "nav_guard": {
+    "imu_available_for_nav": true,
+    "nav_pose_valid": true,
+    "nav_pose_fresh": true,
+    "moving_command": false,
+    "odom_motion_evidence": false,
+    "lidar_motion_evidence": false,
+    "nav_frozen": false,
+    "nav_degraded": false,
+    "safe_stop_requested": false,
+    "safe_stop_triggered": false,
+    "frozen_accum_ms": 0,
+    "degraded_accum_ms": 0
+  }
+}
