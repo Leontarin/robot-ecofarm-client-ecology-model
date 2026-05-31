@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import GreenhouseMap from "./components/GreenhouseMap";
 import MicroclimatePanel from "./components/MicroclimatePanel";
 import SpatialModelPanel from "./components/SpatialModelPanel";
+import ResearchRagPanel from "./components/ResearchRagPanel";
 import TimelineControls from "./components/TimelineControls";
 import { buildFallbackEnvSeries, normalizeEnvSeries } from "./lib/dataParsers";
 import {
@@ -21,6 +22,7 @@ const TABS = [
   { id: "microclimate", label: "Microclimate / M5Stick" },
   { id: "spatial", label: "Spatial Model" },
   { id: "quality", label: "Data Quality" },
+  { id: "rag", label: "Research RAG" },
 ];
 
 function StatCard({ label, value, detail, tone = "slate" }) {
@@ -291,6 +293,8 @@ export default function DataAnalysisPage() {
         )}
 
         {activeTab === "quality" && <DataQualityPanel envSeries={envSeries} tomatoSamples={tomatoSamples} />}
+
+        {activeTab === "rag" && <ResearchRagPanel />}
       </div>
     </main>
   );
