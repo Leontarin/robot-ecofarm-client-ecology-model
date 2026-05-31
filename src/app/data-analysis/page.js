@@ -215,7 +215,7 @@ export default function DataAnalysisPage() {
               <div className="text-[11px] font-semibold uppercase tracking-[0.35em] text-emerald-300">Robot EcoFarm · Data Analysis</div>
               <h1 className="mt-4 max-w-5xl text-4xl font-semibold tracking-tight text-white md:text-5xl">Ecological monitoring dashboard for greenhouse tomato maturity</h1>
               <p className="mt-4 max-w-4xl text-base leading-7 text-slate-300">
-                The page separates the current M5Stick microclimate analysis from the spatial tomato maturity model. The map aggregates scans into seconds, minutes, hours, or days, explains the maturity color scale, and uses click tooltips on tomato points.
+                This page presents the greenhouse as an ecological system that can be measured and analyzed: environmental conditions on one side, and tomato maturity across the greenhouse on the other. The goal is to understand trends, relationships, and areas that may need attention or prediction.
               </p>
             </div>
 

@@ -14,6 +14,20 @@ export const TIME_SCALE_OPTIONS = {
   days: { label: "Days", unit: "d", stepMs: 86_400_000 },
 };
 
+const TIME_SCALE_MS = {
+  seconds: TIME_SCALE_OPTIONS.seconds.stepMs,
+  minutes: TIME_SCALE_OPTIONS.minutes.stepMs,
+  hours: TIME_SCALE_OPTIONS.hours.stepMs,
+  days: TIME_SCALE_OPTIONS.days.stepMs,
+};
+
+function scaleLabelShort(scale) {
+  if (scale === "seconds") return "sec";
+  if (scale === "minutes") return "min";
+  if (scale === "hours") return "hour";
+  return "day";
+}
+
 export const GREENHOUSE_LAYOUT = {
   widthM: 14,
   heightM: 24,
@@ -61,12 +75,11 @@ function createMockTimeline() {
   // Uneven scan schedule: many scans in the first hour, sparse scans later.
   // This is intentional so seconds/minutes/hours/days show aggregation, not animation.
   const timestamps = [];
-  for (let i = 0; i < 30; i += 1) timestamps.push(Math.round(i * 115_000 + random() * 25_000)); // hour 0
-  for (let i = 0; i < 22; i += 1) timestamps.push(3_600_000 + Math.round(i * 410_000 + random() * 90_000)); // hours 1-3
-  for (let i = 0; i < 2; i += 1) timestamps.push(5 * 3_600_000 + Math.round(i * 12 * 60_000 + random() * 60_000)); // hour 5
-  for (let i = 0; i < 18; i += 1) timestamps.push(8 * 3_600_000 + Math.round(i * 530_000 + random() * 100_000)); // hours 8-10
-  for (let i = 0; i < 16; i += 1) timestamps.push(24 * 3_600_000 + Math.round(i * 780_000 + random() * 180_000)); // day 1
-  for (let i = 0; i < 12; i += 1) timestamps.push(48 * 3_600_000 + Math.round(i * 1_200_000 + random() * 200_000)); // day 2
+  for (let i = 0; i < 30; i += 1) timestamps.push(Math.round(i * 42_000 + random() * 12_000)); // dense first 21 minutes
+  for (let i = 0; i < 24; i += 1) timestamps.push(30 * 60_000 + Math.round(i * 75_000 + random() * 18_000)); // minutes 30-60
+  for (let i = 0; i < 22; i += 1) timestamps.push(2 * 3_600_000 + Math.round(i * 180_000 + random() * 35_000)); // hours 2-3
+  for (let i = 0; i < 2; i += 1) timestamps.push(5 * 3_600_000 + Math.round(i * 12 * 60_000 + random() * 60_000)); // sparse hour 5
+  for (let i = 0; i < 22; i += 1) timestamps.push(6 * 3_600_000 + Math.round(i * 90_000 + random() * 22_000)); // hour 6
 
   timestamps.sort((a, b) => a - b);
 
@@ -134,6 +147,7 @@ function createMockTimeline() {
 
 // 100 deterministic mock scan events, shaped like expected YOLO12M + robot-pose output.
 export const MOCK_YOLO_TIMELINE = createMockTimeline();
+const MOCK_START_MS = MOCK_YOLO_TIMELINE[0]?.timestampMs ?? 0;
 
 export function formatTimelineTime(timestampMs, scale = "minutes") {
   const option = TIME_SCALE_OPTIONS[scale] ?? TIME_SCALE_OPTIONS.minutes;
@@ -174,44 +188,63 @@ function average(values) {
 }
 
 export function getTimelineBuckets(scale = "minutes") {
-  const option = TIME_SCALE_OPTIONS[scale] ?? TIME_SCALE_OPTIONS.minutes;
-  const map = new Map();
+  const step = TIME_SCALE_MS[scale] ?? TIME_SCALE_MS.minutes;
+  const frames = MOCK_YOLO_TIMELINE.map((frame) => ({
+    ...frame,
+    bucketIndex: Math.floor((frame.timestampMs - MOCK_START_MS) / step),
+  }));
+  const maxFrameIndex = Math.max(...frames.map((frame) => frame.bucketIndex), 0);
+  const buckets = [];
+  const latestByCluster = new Map();
 
-  for (const frame of MOCK_YOLO_TIMELINE) {
-    const bucketKey = Math.floor(frame.timestampMs / option.stepMs);
-    if (!map.has(bucketKey)) {
-      map.set(bucketKey, {
-        bucketKey,
-        startMs: bucketKey * option.stepMs,
-        endMs: (bucketKey + 1) * option.stepMs,
-        frames: [],
+  for (let bucketIndex = 0; bucketIndex <= maxFrameIndex; bucketIndex += 1) {
+    const startMs = MOCK_START_MS + bucketIndex * step;
+    const endMs = startMs + step;
+    const updates = frames.filter((frame) => frame.bucketIndex === bucketIndex);
+
+    updates.forEach((frame) => {
+      frame.detections.forEach((detection) => {
+        latestByCluster.set(detection.id, detection);
       });
-    }
-    map.get(bucketKey).frames.push(frame);
+    });
+
+    const accumulated = Array.from(latestByCluster.values());
+    const totalKnown = accumulated.length;
+    const avgMaturity = totalKnown
+      ? accumulated.reduce((sum, item) => sum + (item.continuousMaturityScore ?? item.maturityScore ?? 0), 0) / totalKnown
+      : 0;
+    const ripe = accumulated.filter((item) => (item.continuousMaturityScore ?? item.maturityScore ?? 0) >= 0.75).length;
+    const turning = accumulated.filter((item) => {
+      const score = item.continuousMaturityScore ?? item.maturityScore ?? 0;
+      return score >= 0.42 && score < 0.75;
+    }).length;
+    const green = accumulated.filter((item) => (item.continuousMaturityScore ?? item.maturityScore ?? 0) < 0.42).length;
+
+    buckets.push({
+      id: `${scale}-${bucketIndex}`,
+      label: `${scaleLabelShort(scale)} ${bucketIndex + 1}`,
+      bucketIndex,
+      startMs,
+      endMs,
+      updateCount: updates.length,
+      frameCount: updates.length,
+      latestFrame: updates[updates.length - 1] ?? null,
+      totalKnownDetections: totalKnown,
+      avgMaturityPercent: Math.round(avgMaturity * 100),
+      ripeCount: ripe,
+      turningCount: turning,
+      greenCount: green,
+      detections: accumulated,
+      maturityGroups: {
+        ripe,
+        turning,
+        green,
+        total: totalKnown,
+      },
+    });
   }
 
-  const buckets = Array.from(map.values()).sort((a, b) => a.bucketKey - b.bucketKey);
-
-  return buckets.map((bucket, index) => {
-    const detections = bucket.frames.flatMap((frame) => frame.detections.map((d) => enrichDetection(d, frame)));
-    const avgMaturity = average(detections.map((d) => d.maturityScore));
-    const previous = buckets[index - 1];
-    const previousDetections = previous?.frames.flatMap((frame) => frame.detections.map((d) => enrichDetection(d, frame))) ?? [];
-    const previousAverage = previousDetections.length ? average(previousDetections.map((d) => d.maturityScore)) : avgMaturity;
-    const trend = avgMaturity - previousAverage;
-
-    return {
-      ...bucket,
-      index,
-      detections,
-      sampleCount: bucket.frames.length,
-      detectionCount: detections.length,
-      avgMaturity,
-      trend,
-      expectedNextMaturity: clamp(avgMaturity + trend, 0, 1),
-      latestFrame: bucket.frames[bucket.frames.length - 1],
-    };
-  });
+  return buckets;
 }
 
 export function getAccumulatedDetectionsUpToBucket(bucketPosition, scale = "minutes") {
@@ -219,9 +252,16 @@ export function getAccumulatedDetectionsUpToBucket(bucketPosition, scale = "minu
   const active = buckets[clamp(bucketPosition, 0, buckets.length - 1)] ?? buckets[0];
   if (!active) return [];
 
-  return MOCK_YOLO_TIMELINE
+  const byCluster = new Map();
+  MOCK_YOLO_TIMELINE
     .filter((frame) => frame.timestampMs < active.endMs)
-    .flatMap((frame) => frame.detections.map((d) => enrichDetection(d, frame)));
+    .forEach((frame) => {
+      frame.detections.forEach((detection) => {
+        byCluster.set(detection.id, enrichDetection(detection, frame));
+      });
+    });
+
+  return Array.from(byCluster.values());
 }
 
 export function getDetectionsInBucket(bucketPosition, scale = "minutes") {

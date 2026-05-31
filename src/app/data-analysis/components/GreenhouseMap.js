@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import { TOMATO_CLASSES, formatTimelineTime } from "../lib/mockTomatoData";
 
 function maturityColor(value) {
@@ -13,49 +14,68 @@ function opacityForUncertainty(value) {
   return Math.max(0.15, Math.min(0.9, 1 - value));
 }
 
-function TooltipCard({ point, sx, sy, timeScale }) {
-  if (!point) return null;
+function TooltipCard({ point, position, timeScale, onClose }) {
+  if (!point || !position) return null;
 
-  const x = sx(point.x);
-  const y = sy(point.y);
-  const width = 250;
-  const height = 168;
-  const offsetX = x > 455 ? -width - 18 : 18;
-  const offsetY = y > 640 ? -height - 18 : 18;
+  const width = 400;
+  const viewportWidth = typeof window === "undefined" ? 1200 : window.innerWidth;
+  const viewportHeight = typeof window === "undefined" ? 900 : window.innerHeight;
+  const left = Math.min(position.x + 18, Math.max(18, viewportWidth - width - 18));
+  const top = Math.min(position.y + 18, Math.max(18, viewportHeight - 360));
+  const scanX = Number.isFinite(point.scanPose?.x) ? `${point.scanPose.x.toFixed(1)}m` : "unknown";
+  const scanY = Number.isFinite(point.scanPose?.y) ? `${point.scanPose.y.toFixed(1)}m` : "unknown";
 
   return (
-    <foreignObject x={x + offsetX} y={y + offsetY} width={width} height={height}>
-      <div className="rounded-2xl border border-slate-600 bg-slate-950/95 p-3 text-left shadow-2xl shadow-black/60">
-        <div className="flex items-start justify-between gap-3">
-          <div>
-            <div className="text-[10px] font-semibold uppercase tracking-[0.22em] text-cyan-300">Selected tomato cluster</div>
-            <div className="mt-1 text-lg font-semibold text-white">{point.id}</div>
-          </div>
-          <span className="rounded-full border border-slate-700 px-2 py-1 text-[10px] font-semibold text-slate-300">class {point.classId}</span>
+    <div
+      data-tomato-tooltip="true"
+      className="fixed z-[9999] box-border rounded-[1.5rem] border border-slate-500 bg-slate-950/98 p-5 text-left shadow-2xl shadow-black/70"
+      style={{ left, top, width, maxWidth: "calc(100vw - 36px)", pointerEvents: "auto" }}
+      onClick={(event) => event.stopPropagation()}
+    >
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <div className="text-sm font-semibold uppercase tracking-[0.16em] text-cyan-300">Tomato cluster</div>
+          <div className="mt-1 text-3xl font-semibold text-white">{point.id}</div>
         </div>
-        <div className="mt-2 grid grid-cols-2 gap-2 text-xs">
-          <div className="rounded-xl bg-slate-900/90 p-2">
-            <div className="text-slate-500">Maturity</div>
-            <div className="font-semibold text-white">{Math.round(point.maturityScore * 100)}%</div>
-          </div>
-          <div className="rounded-xl bg-slate-900/90 p-2">
-            <div className="text-slate-500">Confidence</div>
-            <div className="font-semibold text-white">{Math.round(point.confidence * 100)}%</div>
-          </div>
-          <div className="rounded-xl bg-slate-900/90 p-2">
-            <div className="text-slate-500">Count</div>
-            <div className="font-semibold text-white">{point.count}</div>
-          </div>
-          <div className="rounded-xl bg-slate-900/90 p-2">
-            <div className="text-slate-500">Seen at</div>
-            <div className="font-semibold text-white">{formatTimelineTime(point.timestampMs, timeScale)}</div>
-          </div>
-        </div>
-        <div className="mt-2 text-xs leading-5 text-slate-300">
-          {point.label} · row {point.row}. Scanned from {point.scanPose?.aisle ?? "robot aisle"} at x={point.scanPose?.x?.toFixed(1)}m, y={point.scanPose?.y?.toFixed(1)}m.
+        <div className="flex items-start gap-2">
+          <span className="rounded-full border border-slate-700 px-3 py-1.5 text-base font-semibold text-slate-300">class {point.classId}</span>
+          <button
+            type="button"
+            aria-label="Close tooltip"
+            className="flex h-9 w-9 items-center justify-center rounded-full border border-slate-700 bg-slate-900 text-xl font-semibold leading-none text-slate-200 hover:border-cyan-300 hover:text-white"
+            onClick={(event) => {
+              event.stopPropagation();
+              onClose?.();
+            }}
+          >
+            ×
+          </button>
         </div>
       </div>
-    </foreignObject>
+
+      <div className="mt-4 grid grid-cols-2 gap-3 text-base">
+        <div className="rounded-2xl bg-slate-900/90 p-3">
+          <div className="text-slate-500">Maturity</div>
+          <div className="text-2xl font-semibold text-white">{Math.round(point.maturityScore * 100)}%</div>
+        </div>
+        <div className="rounded-2xl bg-slate-900/90 p-3">
+          <div className="text-slate-500">Confidence</div>
+          <div className="text-2xl font-semibold text-white">{Math.round(point.confidence * 100)}%</div>
+        </div>
+        <div className="rounded-2xl bg-slate-900/90 p-3">
+          <div className="text-slate-500">Count</div>
+          <div className="text-2xl font-semibold text-white">{point.count}</div>
+        </div>
+        <div className="rounded-2xl bg-slate-900/90 p-3">
+          <div className="text-slate-500">Seen at</div>
+          <div className="text-2xl font-semibold text-white">{formatTimelineTime(point.timestampMs, timeScale)}</div>
+        </div>
+      </div>
+
+      <div className="mt-4 text-base leading-7 text-slate-300">
+        {point.label} · row {point.row}. Scanned from {point.scanPose?.aisle ?? "robot aisle"} at x={scanX}, y={scanY}.
+      </div>
+    </div>
   );
 }
 
@@ -99,7 +119,25 @@ export default function GreenhouseMap({ layout, samples, currentDetections = [],
   const sy = (y) => height - pad - (y / layout.heightM) * (height - pad * 2);
   const cellW = ((width - pad * 2) / layout.widthM) * 0.75;
   const cellH = ((height - pad * 2) / layout.heightM) * 0.75;
+  const [tooltipPosition, setTooltipPosition] = useState(null);
   const selectedPoint = samples.find((point) => point.id === selectedId) ?? null;
+
+  useEffect(() => {
+    if (!selectedId) return undefined;
+
+    const closePinnedTooltip = (event) => {
+      if (event.target?.closest?.('[data-tomato-tooltip="true"], [data-tomato-point="true"]')) return;
+      setTooltipPosition(null);
+      onSelect(null);
+    };
+
+    document.addEventListener("click", closePinnedTooltip);
+    return () => document.removeEventListener("click", closePinnedTooltip);
+  }, [selectedId, onSelect]);
+
+  useEffect(() => {
+    if (!selectedId) setTooltipPosition(null);
+  }, [selectedId]);
 
   return (
     <section className="rounded-[2rem] border border-slate-800 bg-slate-900/65 p-5">
@@ -114,8 +152,16 @@ export default function GreenhouseMap({ layout, samples, currentDetections = [],
         <div className="rounded-full border border-slate-700 bg-slate-950/70 px-4 py-2 text-xs font-semibold uppercase tracking-[0.18em] text-slate-300">{layer}</div>
       </div>
 
-      <div className="mt-5 overflow-hidden rounded-3xl border border-slate-800 bg-slate-950/80">
-        <svg viewBox={`0 0 ${width} ${height}`} className="h-[680px] w-full">
+      <div className="mt-5 overflow-visible rounded-3xl border border-slate-800 bg-slate-950/80">
+        <svg
+          viewBox={`0 0 ${width} ${height}`}
+          className="h-[680px] w-full overflow-visible"
+          style={{ overflow: "visible" }}
+          onClick={() => {
+            setTooltipPosition(null);
+            onSelect(null);
+          }}
+        >
           <defs>
             <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
               <path d="M 40 0 L 0 0 0 40" fill="none" stroke="rgba(148,163,184,0.12)" strokeWidth="1" />
@@ -162,18 +208,20 @@ export default function GreenhouseMap({ layout, samples, currentDetections = [],
             />
           ))}
 
-          {currentDetections.map((point) => (
-            <line
-              key={`scan-${point.id}`}
-              x1={sx(point.scanPose.x)}
-              y1={sy(point.scanPose.y)}
-              x2={sx(point.x)}
-              y2={sy(point.y)}
-              stroke="rgba(125,211,252,0.22)"
-              strokeWidth="1.5"
-              strokeDasharray="5 7"
-            />
-          ))}
+          {currentDetections
+            .filter((point) => point?.scanPose && Number.isFinite(point.scanPose.x) && Number.isFinite(point.scanPose.y))
+            .map((point) => (
+              <line
+                key={`scan-${point.id}`}
+                x1={sx(point.scanPose.x)}
+                y1={sy(point.scanPose.y)}
+                x2={sx(point.x)}
+                y2={sy(point.y)}
+                stroke="rgba(125,211,252,0.22)"
+                strokeWidth="1.5"
+                strokeDasharray="5 7"
+              />
+            ))}
 
           {currentRobotPose && (
             <g>
@@ -186,15 +234,32 @@ export default function GreenhouseMap({ layout, samples, currentDetections = [],
           {samples.map((point) => {
             const selected = selectedId === point.id;
             return (
-              <g key={point.id} onClick={() => onSelect(point)} className="cursor-pointer">
+              <g
+                key={point.id}
+                data-tomato-point="true"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  setTooltipPosition({ x: event.clientX, y: event.clientY });
+                  onSelect(point);
+                }}
+                className="cursor-pointer"
+              >
                 <circle cx={sx(point.x)} cy={sy(point.y)} r={selected ? 15 : 10 + Math.min(point.count, 8)} fill={point.color} stroke={selected ? "#ffffff" : "rgba(255,255,255,0.42)"} strokeWidth={selected ? 3 : 1.5} />
                 <text x={sx(point.x) + 13} y={sy(point.y) - 12} fill="rgba(226,232,240,0.78)" fontSize="11">{point.id}</text>
               </g>
             );
           })}
 
-          <TooltipCard point={selectedPoint} sx={sx} sy={sy} timeScale={timeScale} />
         </svg>
+        <TooltipCard
+          point={selectedPoint}
+          position={tooltipPosition}
+          timeScale={timeScale}
+          onClose={() => {
+            setTooltipPosition(null);
+            onSelect(null);
+          }}
+        />
       </div>
 
       <div className="mt-4 grid gap-3 text-xs text-slate-400 sm:grid-cols-4">
