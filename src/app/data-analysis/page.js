@@ -105,7 +105,7 @@ function OverviewPanel({ envSeries, tomatoSamples, spatialSummary, setActiveTab 
             </button>
             <button onClick={() => setActiveTab("map")} className="rounded-3xl border border-slate-800 bg-slate-950/70 p-4 text-left transition hover:border-cyan-400/50">
               <div className="text-sm font-semibold text-white">Greenhouse spatial map</div>
-              <p className="mt-2 text-sm leading-6 text-slate-400">Top-down rows, current robot pose, accumulated tomato maturity clusters, Kriging-style prediction layer, and uncertainty view.</p>
+              <p className="mt-2 text-sm leading-6 text-slate-400">One vertical tomato row, current robot pose, accumulated tomato maturity clusters, Kriging-style prediction layer, and uncertainty view.</p>
             </button>
           </div>
         </div>
@@ -134,7 +134,7 @@ function DataQualityPanel({ envSeries, tomatoSamples }) {
       <div className="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <StatCard label="M5Stick" value="Real / API" detail={`${envSeries.length} parsed environmental samples`} tone="emerald" />
         <StatCard label="YOLO12M" value="Mock" detail={`${tomatoSamples.length} prototype detections loaded`} tone="cyan" />
-        <StatCard label="Greenhouse size" value="Assumed" detail="Used only for top-down prototype scaling" tone="amber" />
+        <StatCard label="Greenhouse layout" value="One mock row" detail="Aligned top-to-bottom tomato positions" tone="amber" />
         <StatCard label="Kriging" value="Prototype" detail="Ready to connect to real spatial samples" tone="fuchsia" />
       </div>
 
@@ -144,7 +144,7 @@ function DataQualityPanel({ envSeries, tomatoSamples }) {
           <ul className="mt-3 space-y-2 text-sm leading-6 text-slate-400">
             <li>• M5Stick temperature, humidity, pressure, and gas resistance.</li>
             <li>• Microclimate graphs with thresholds, trends, prediction overlay, and correlation matrix.</li>
-            <li>• Mock tomato maturity classes structured like expected YOLO12M output.</li>
+            <li>• Aligned one-row mock tomato maturity classes structured like expected YOLO12M output.</li>
             <li>• Spatial map, autocorrelation indicators, variogram summary, and uncertainty layer.</li>
           </ul>
         </div>

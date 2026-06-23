@@ -1,3 +1,4 @@
+import Image from "next/image";
 import { useEffect, useState } from "react";
 import { TOMATO_CLASSES, formatTimelineTime } from "../lib/mockTomatoData";
 
@@ -21,7 +22,7 @@ function TooltipCard({ point, position, timeScale, onClose }) {
   const viewportWidth = typeof window === "undefined" ? 1200 : window.innerWidth;
   const viewportHeight = typeof window === "undefined" ? 900 : window.innerHeight;
   const left = Math.min(position.x + 18, Math.max(18, viewportWidth - width - 18));
-  const top = Math.min(position.y + 18, Math.max(18, viewportHeight - 360));
+  const top = Math.min(position.y + 18, Math.max(18, viewportHeight - 470));
   const scanX = Number.isFinite(point.scanPose?.x) ? `${point.scanPose.x.toFixed(1)}m` : "unknown";
   const scanY = Number.isFinite(point.scanPose?.y) ? `${point.scanPose.y.toFixed(1)}m` : "unknown";
 
@@ -52,6 +53,20 @@ function TooltipCard({ point, position, timeScale, onClose }) {
           </button>
         </div>
       </div>
+
+      {point.image && (
+        <div className="mt-4 overflow-hidden rounded-2xl border border-slate-800 bg-slate-900/90">
+          <Image
+            src={point.image}
+            alt={`${point.label ?? "Tomato"} mock observation`}
+            className="h-56 w-full object-cover"
+            width={720}
+            height={420}
+            sizes="(max-width: 640px) calc(100vw - 72px), 400px"
+            priority={false}
+          />
+        </div>
+      )}
 
       <div className="mt-4 grid grid-cols-2 gap-3 text-base">
         <div className="rounded-2xl bg-slate-900/90 p-3">
@@ -144,9 +159,9 @@ export default function GreenhouseMap({ layout, samples, currentDetections = [],
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
           <div className="text-[11px] font-semibold uppercase tracking-[0.3em] text-emerald-300">Spatial ecological model</div>
-          <h2 className="mt-2 text-2xl font-semibold text-white">Top-down greenhouse maturity map</h2>
+          <h2 className="mt-2 text-2xl font-semibold text-white">Single-row greenhouse maturity map</h2>
           <p className="mt-1 max-w-3xl text-sm text-slate-400">
-            The robot scans from aisles between rows. The map stacks all detections known up to the selected time bucket; only the current robot pose is shown, not the full robot path.
+            This mock greenhouse contains one vertical tomato row. Tomato locations remain fixed from top to bottom while the mock YOLO12M detections update their maturity class over time.
           </p>
         </div>
         <div className="rounded-full border border-slate-700 bg-slate-950/70 px-4 py-2 text-xs font-semibold uppercase tracking-[0.18em] text-slate-300">{layer}</div>
@@ -166,9 +181,6 @@ export default function GreenhouseMap({ layout, samples, currentDetections = [],
             <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
               <path d="M 40 0 L 0 0 0 40" fill="none" stroke="rgba(148,163,184,0.12)" strokeWidth="1" />
             </pattern>
-            <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto" markerUnits="strokeWidth">
-              <path d="M0,0 L0,6 L9,3 z" fill="rgba(167,139,250,0.95)" />
-            </marker>
           </defs>
 
           <rect x="0" y="0" width={width} height={height} fill="#020617" />
@@ -176,7 +188,7 @@ export default function GreenhouseMap({ layout, samples, currentDetections = [],
 
           {layout.aisles?.map((aisle) => (
             <g key={aisle.id}>
-              <line x1={sx(aisle.x)} y1={sy(1.2)} x2={sx(aisle.x)} y2={sy(22.8)} stroke="rgba(148,163,184,0.22)" strokeWidth="10" strokeLinecap="round" />
+              <line x1={sx(aisle.x)} y1={sy(1.2)} x2={sx(aisle.x)} y2={sy(22.8)} stroke="rgba(148,163,184,0.22)" strokeWidth="12" strokeLinecap="round" />
               <text x={sx(aisle.x) - 22} y={sy(23.2)} fill="rgba(226,232,240,0.5)" fontSize="11">{aisle.label}</text>
             </g>
           ))}
@@ -188,11 +200,12 @@ export default function GreenhouseMap({ layout, samples, currentDetections = [],
                 y={sy(row.y2)}
                 width={(row.width / layout.widthM) * (width - pad * 2)}
                 height={sy(row.y1) - sy(row.y2)}
-                rx="12"
-                fill="rgba(34,197,94,0.12)"
-                stroke="rgba(34,197,94,0.24)"
+                rx="14"
+                fill="rgba(34,197,94,0.16)"
+                stroke="rgba(34,197,94,0.40)"
+                strokeWidth="1.5"
               />
-              <text x={sx(row.x) - 9} y={sy(row.y2) - 10} fill="rgba(226,232,240,0.62)" fontSize="12">{row.id}</text>
+              <text x={sx(row.x) - 10} y={sy(row.y2) - 10} fill="rgba(226,232,240,0.72)" fontSize="12">{row.id}</text>
             </g>
           ))}
 
@@ -204,7 +217,7 @@ export default function GreenhouseMap({ layout, samples, currentDetections = [],
               width={cellW}
               height={cellH}
               fill={layer === "uncertainty" ? "#38bdf8" : maturityColor(cell.value)}
-              opacity={layer === "uncertainty" ? cell.uncertainty * 0.65 : opacityForUncertainty(cell.uncertainty) * 0.55}
+              opacity={layer === "uncertainty" ? cell.uncertainty * 0.48 : opacityForUncertainty(cell.uncertainty) * 0.34}
             />
           ))}
 
@@ -217,7 +230,7 @@ export default function GreenhouseMap({ layout, samples, currentDetections = [],
                 y1={sy(point.scanPose.y)}
                 x2={sx(point.x)}
                 y2={sy(point.y)}
-                stroke="rgba(125,211,252,0.22)"
+                stroke="rgba(125,211,252,0.24)"
                 strokeWidth="1.5"
                 strokeDasharray="5 7"
               />
@@ -249,8 +262,8 @@ export default function GreenhouseMap({ layout, samples, currentDetections = [],
               </g>
             );
           })}
-
         </svg>
+
         <TooltipCard
           point={selectedPoint}
           position={tooltipPosition}
