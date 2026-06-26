@@ -3,7 +3,6 @@
 import { useEffect, useMemo, useState } from "react";
 import GreenhouseMap from "./components/GreenhouseMap";
 import MicroclimatePanel from "./components/MicroclimatePanel";
-import SpatialModelPanel from "./components/SpatialModelPanel";
 import ResearchRagPanel from "./components/ResearchRagPanel";
 import TimelineControls from "./components/TimelineControls";
 import { buildFallbackEnvSeries, normalizeEnvSeries } from "./lib/dataParsers";
@@ -15,6 +14,8 @@ import {
   getTimelineBuckets,
 } from "./lib/mockTomatoData";
 import { summarizeSpatialModel } from "./lib/spatialModel";
+import ScenarioControls from "./components/ScenarioControls";
+import { applyScenarioToSamples } from "./lib/scenarios";
 
 const TABS = [
   { id: "overview", label: "Overview" },
@@ -169,6 +170,7 @@ export default function DataAnalysisPage() {
   const [layer, setLayer] = useState("kriging");
   const [selected, setSelected] = useState(null);
   const [activeTab, setActiveTab] = useState("overview");
+  const [scenarioId, setScenarioId] = useState("baseline");
 
   useEffect(() => {
     let alive = true;
@@ -196,16 +198,20 @@ export default function DataAnalysisPage() {
   const timelineBuckets = useMemo(() => getTimelineBuckets(timeScale), [timeScale]);
   const safeBucketPosition = Math.min(bucketPosition, Math.max(0, timelineBuckets.length - 1));
   const tomatoSamples = useMemo(() => getAccumulatedDetectionsUpToBucket(safeBucketPosition, timeScale), [safeBucketPosition, timeScale]);
+  const scenarioTomatoSamples = useMemo(() => applyScenarioToSamples(tomatoSamples, scenarioId), [tomatoSamples, scenarioId],);
   const currentDetections = useMemo(() => getDetectionsInBucket(safeBucketPosition, timeScale), [safeBucketPosition, timeScale]);
+  const scenarioCurrentDetections = useMemo(() => applyScenarioToSamples(currentDetections, scenarioId), [currentDetections, scenarioId],);
   const currentRobotPose = useMemo(() => getCurrentRobotPoseForBucket(safeBucketPosition, timeScale), [safeBucketPosition, timeScale]);
   const spatialSummary = useMemo(
-    () => summarizeSpatialModel(tomatoSamples, GREENHOUSE_LAYOUT),
-    [tomatoSamples],
+    () => summarizeSpatialModel(scenarioTomatoSamples, GREENHOUSE_LAYOUT),
+    [scenarioTomatoSamples],
   );
 
   useEffect(() => {
-    if (selected && !tomatoSamples.some((sample) => sample.id === selected.id)) setSelected(null);
-  }, [selected, tomatoSamples]);
+    if (selected && !scenarioTomatoSamples.some((sample) => sample.id === selected.id)) {
+      setSelected(null);
+    }
+  }, [selected, scenarioTomatoSamples]);
 
   return (
     <main className="min-h-screen bg-slate-950 px-4 py-6 text-slate-100 sm:px-6 lg:px-8">
@@ -241,10 +247,12 @@ export default function DataAnalysisPage() {
           ))}
         </nav>
 
+        <ScenarioControls scenarioId={scenarioId} setScenarioId={setScenarioId} />
+
         {activeTab === "overview" && (
           <OverviewPanel
             envSeries={envSeries}
-            tomatoSamples={tomatoSamples}
+            tomatoSamples={scenarioTomatoSamples}
             spatialSummary={spatialSummary}
             setActiveTab={setActiveTab}
           />
@@ -263,8 +271,8 @@ export default function DataAnalysisPage() {
 
             <GreenhouseMap
               layout={GREENHOUSE_LAYOUT}
-              samples={tomatoSamples}
-              currentDetections={currentDetections}
+              samples={scenarioTomatoSamples}
+              currentDetections={scenarioCurrentDetections}
               currentRobotPose={currentRobotPose}
               spatialSummary={spatialSummary}
               layer={layer}
@@ -277,21 +285,7 @@ export default function DataAnalysisPage() {
 
         {activeTab === "microclimate" && <MicroclimatePanel />}
 
-        {activeTab === "spatial" && (
-          <section className="space-y-6">
-            <TimelineControls
-              bucketPosition={safeBucketPosition}
-              setBucketPosition={setBucketPosition}
-              layer={layer}
-              setLayer={setLayer}
-              timeScale={timeScale}
-              setTimeScale={setTimeScale}
-            />
-            <SpatialModelPanel summary={spatialSummary} />
-          </section>
-        )}
-
-        {activeTab === "quality" && <DataQualityPanel envSeries={envSeries} tomatoSamples={tomatoSamples} />}
+        {activeTab === "quality" && <DataQualityPanel envSeries={envSeries} tomatoSamples={scenarioTomatoSamples} />}
 
         {activeTab === "rag" && <ResearchRagPanel />}
       </div>
