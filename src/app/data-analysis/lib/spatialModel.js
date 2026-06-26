@@ -74,6 +74,37 @@ export function calculateMoranI(samples, thresholdM = 4.5) {
   return { value, label, pValue };
 }
 
+export function calculateMoranPermutationTest(samples, thresholdM = 4.5, permutations = 999) {
+  const points = samples.filter((p) => Number.isFinite(p.maturityScore));
+  if (points.length < 3) {
+    return { observed: 0, pValue: null };
+  }
+
+  const observed = calculateMoranI(points, thresholdM).value;
+  const scores = points.map((p) => p.maturityScore);
+
+  let extremeCount = 0;
+
+  for (let k = 0; k < permutations; k += 1) {
+    const shuffled = [...scores].sort(() => Math.random() - 0.5);
+
+    const shuffledPoints = points.map((point, index) => ({
+      ...point,
+      maturityScore: shuffled[index],
+    }));
+
+    const simulated = calculateMoranI(shuffledPoints, thresholdM).value;
+
+    if (Math.abs(simulated) >= Math.abs(observed)) {
+      extremeCount += 1;
+    }
+  }
+
+  const pValue = (extremeCount + 1) / (permutations + 1);
+
+  return { observed, pValue };
+}
+
 export function calculateGearyC(samples, thresholdM = 4.5) {
   const points = samples.filter((p) => Number.isFinite(p.maturityScore));
   const n = points.length;
@@ -125,12 +156,14 @@ export function estimateVariogram(samples) {
 
 export function summarizeSpatialModel(samples, layout) {
   const moran = calculateMoranI(samples);
+  const moranTest = calculateMoranPermutationTest(samples);
   const geary = calculateGearyC(samples);
   const variogram = estimateVariogram(samples);
   const grid = buildPredictionGrid(samples, layout, 0.75);
   const coverage = clamp((samples.length / 25) * 100, 0, 100);
   const maturityAverage = mean(samples.map((p) => p.maturityScore));
   const uncertaintyAverage = mean(grid.map((p) => p.uncertainty));
+  
 
-  return { moran, geary, variogram, grid, coverage, maturityAverage, uncertaintyAverage };
+  return { moran, moranTest, geary, variogram, grid, coverage, maturityAverage, uncertaintyAverage };
 }

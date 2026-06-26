@@ -20,7 +20,6 @@ const TABS = [
   { id: "overview", label: "Overview" },
   { id: "map", label: "Greenhouse Map" },
   { id: "microclimate", label: "Microclimate / M5Stick" },
-  { id: "spatial", label: "Spatial Model" },
   { id: "quality", label: "Data Quality" },
   { id: "rag", label: "Research RAG" },
 ];

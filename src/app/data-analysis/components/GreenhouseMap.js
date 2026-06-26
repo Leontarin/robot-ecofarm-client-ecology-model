@@ -94,6 +94,74 @@ function TooltipCard({ point, position, timeScale, onClose }) {
   );
 }
 
+function MetricCard({ label, value, detail }) {
+  return (
+    <div className="rounded-3xl border border-slate-800 bg-slate-950/70 p-4">
+      <div className="text-[10px] font-semibold uppercase tracking-[0.22em] text-slate-500">{label}</div>
+      <div className="mt-2 text-2xl font-semibold text-white">{value}</div>
+      <div className="mt-1 min-h-[2.5rem] text-sm text-slate-400">{detail}</div>
+    </div>
+  );
+}
+
+function SpatialStatsView({ summary }) {
+  return (
+    <div className="mt-5">
+      <div className="text-[11px] font-semibold uppercase tracking-[0.3em] text-fuchsia-300">
+        Spatial statistics
+      </div>
+
+      <h3 className="mt-2 text-xl font-semibold text-white">
+        Autocorrelation and Kriging readiness
+      </h3>
+
+      <p className="mt-1 text-sm text-slate-400">
+        These values are prototype indicators based on the tomato maturity map. Replace the mock YOLO12M log with real detections when available.
+      </p>
+
+      <div className="mt-5 grid gap-3 md:grid-cols-2 xl:grid-cols-5">
+        <MetricCard
+          label="Moran's I"
+          value={summary.moran.value.toFixed(2)}
+          detail={summary.moran.label}
+        />
+
+        <MetricCard
+          label="Geary's C"
+          value={summary.geary.value.toFixed(2)}
+          detail={summary.geary.label}
+        />
+
+        <MetricCard
+          label="Variogram range"
+          value={`${summary.variogram.rangeMeters.toFixed(1)}m`}
+          detail={`Model: ${summary.variogram.model}, sill ${summary.variogram.sill.toFixed(2)}`}
+        />
+
+        <MetricCard
+          label="Avg uncertainty"
+          value={`${Math.round(summary.uncertaintyAverage * 100)}%`}
+          detail="Lower uncertainty means the robot sampled nearby points."
+        />
+
+        <MetricCard
+          label="Moran p-value"
+          value={summary.moranTest?.pValue != null ? summary.moranTest.pValue.toFixed(3) : "—"}
+          detail="Permutation test for spatial autocorrelation"
+        />
+      </div>
+
+      <div className="mt-5 rounded-3xl border border-slate-800 bg-slate-950/70 p-4">
+        <div className="text-sm font-semibold text-white">Interpretation for the course</div>
+        <p className="mt-2 text-sm leading-6 text-slate-400">
+          If nearby tomato clusters have similar maturity, the map should show positive spatial autocorrelation.
+          The Kriging-style prediction layer then uses that spatial structure to estimate maturity in unsampled greenhouse cells and to show where prediction uncertainty is high.
+        </p>
+      </div>
+    </div>
+  );
+}
+
 function MaturityLegend() {
   const classes = [5, 3, 2, 4, 1, 0];
 
@@ -135,6 +203,7 @@ export default function GreenhouseMap({ layout, samples, currentDetections = [],
   const cellW = ((width - pad * 2) / layout.widthM) * 0.75;
   const cellH = ((height - pad * 2) / layout.heightM) * 0.75;
   const [tooltipPosition, setTooltipPosition] = useState(null);
+  const [viewMode, setViewMode] = useState("map");
   const selectedPoint = samples.find((point) => point.id === selectedId) ?? null;
 
   useEffect(() => {
@@ -155,134 +224,173 @@ export default function GreenhouseMap({ layout, samples, currentDetections = [],
   }, [selectedId]);
 
   return (
-    <section className="rounded-[2rem] border border-slate-800 bg-slate-900/65 p-5">
-      <div className="flex flex-wrap items-start justify-between gap-4">
-        <div>
-          <div className="text-[11px] font-semibold uppercase tracking-[0.3em] text-emerald-300">Spatial ecological model</div>
-          <h2 className="mt-2 text-2xl font-semibold text-white">Single-row greenhouse maturity map</h2>
-          <p className="mt-1 max-w-3xl text-sm text-slate-400">
-            This mock greenhouse contains one vertical tomato row. Tomato locations remain fixed from top to bottom while the mock YOLO12M detections update their maturity class over time.
-          </p>
+  <section className="rounded-[2rem] border border-slate-800 bg-slate-900/65 p-5">
+    <div className="flex flex-wrap items-start justify-between gap-4">
+      <div>
+        <div className="text-[11px] font-semibold uppercase tracking-[0.3em] text-emerald-300">
+          Spatial ecological model
         </div>
-        <div className="rounded-full border border-slate-700 bg-slate-950/70 px-4 py-2 text-xs font-semibold uppercase tracking-[0.18em] text-slate-300">{layer}</div>
+        <h2 className="mt-2 text-2xl font-semibold text-white">
+          Greenhouse spatial model
+        </h2>
+        <p className="mt-1 max-w-3xl text-sm text-slate-400">
+          This tab combines the greenhouse maturity map with the spatial statistics used for autocorrelation and Kriging-style prediction.
+        </p>
+
+        <div className="mt-4 flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={() => setViewMode("map")}
+            className={`rounded-full border px-4 py-2 text-xs font-semibold uppercase tracking-[0.18em] ${
+              viewMode === "map"
+                ? "border-emerald-300 bg-emerald-300 text-slate-950"
+                : "border-slate-700 bg-slate-950/70 text-slate-300 hover:border-slate-500"
+            }`}
+          >
+            Map view
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setViewMode("stats")}
+            className={`rounded-full border px-4 py-2 text-xs font-semibold uppercase tracking-[0.18em] ${
+              viewMode === "stats"
+                ? "border-fuchsia-300 bg-fuchsia-300 text-slate-950"
+                : "border-slate-700 bg-slate-950/70 text-slate-300 hover:border-slate-500"
+            }`}
+          >
+            Spatial / Kriging stats
+          </button>
+        </div>
       </div>
 
-      <div className="mt-5 overflow-visible rounded-3xl border border-slate-800 bg-slate-950/80">
-        <svg
-          viewBox={`0 0 ${width} ${height}`}
-          className="h-[680px] w-full overflow-visible"
-          style={{ overflow: "visible" }}
-          onClick={() => {
-            setTooltipPosition(null);
-            onSelect(null);
-          }}
-        >
-          <defs>
-            <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
-              <path d="M 40 0 L 0 0 0 40" fill="none" stroke="rgba(148,163,184,0.12)" strokeWidth="1" />
-            </pattern>
-          </defs>
+      <div className="rounded-full border border-slate-700 bg-slate-950/70 px-4 py-2 text-xs font-semibold uppercase tracking-[0.18em] text-slate-300">
+        {layer}
+      </div>
+    </div>
 
-          <rect x="0" y="0" width={width} height={height} fill="#020617" />
-          <rect x={pad} y={pad} width={width - pad * 2} height={height - pad * 2} fill="url(#grid)" stroke="rgba(56,189,248,0.25)" />
+    {viewMode === "map" ? (
+      <>
+        <div className="mt-5 overflow-visible rounded-3xl border border-slate-800 bg-slate-950/80">
+          <svg
+            viewBox={`0 0 ${width} ${height}`}
+            className="h-[680px] w-full overflow-visible"
+            style={{ overflow: "visible" }}
+            onClick={() => {
+              setTooltipPosition(null);
+              onSelect(null);
+            }}
+          >
+            <defs>
+              <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
+                <path d="M 40 0 L 0 0 0 40" fill="none" stroke="rgba(148,163,184,0.12)" strokeWidth="1" />
+              </pattern>
+            </defs>
 
-          {layout.aisles?.map((aisle) => (
-            <g key={aisle.id}>
-              <line x1={sx(aisle.x)} y1={sy(1.2)} x2={sx(aisle.x)} y2={sy(22.8)} stroke="rgba(148,163,184,0.22)" strokeWidth="12" strokeLinecap="round" />
-              <text x={sx(aisle.x) - 22} y={sy(23.2)} fill="rgba(226,232,240,0.5)" fontSize="11">{aisle.label}</text>
-            </g>
-          ))}
+            <rect x="0" y="0" width={width} height={height} fill="#020617" />
+            <rect x={pad} y={pad} width={width - pad * 2} height={height - pad * 2} fill="url(#grid)" stroke="rgba(56,189,248,0.25)" />
 
-          {layout.rows.map((row) => (
-            <g key={row.id}>
+            {layout.aisles?.map((aisle) => (
+              <g key={aisle.id}>
+                <line x1={sx(aisle.x)} y1={sy(1.2)} x2={sx(aisle.x)} y2={sy(22.8)} stroke="rgba(148,163,184,0.22)" strokeWidth="12" strokeLinecap="round" />
+                <text x={sx(aisle.x) - 22} y={sy(23.2)} fill="rgba(226,232,240,0.5)" fontSize="11">{aisle.label}</text>
+              </g>
+            ))}
+
+            {layout.rows.map((row) => (
+              <g key={row.id}>
+                <rect
+                  x={sx(row.x - row.width / 2)}
+                  y={sy(row.y2)}
+                  width={(row.width / layout.widthM) * (width - pad * 2)}
+                  height={sy(row.y1) - sy(row.y2)}
+                  rx="14"
+                  fill="rgba(34,197,94,0.16)"
+                  stroke="rgba(34,197,94,0.40)"
+                  strokeWidth="1.5"
+                />
+                <text x={sx(row.x) - 10} y={sy(row.y2) - 10} fill="rgba(226,232,240,0.72)" fontSize="12">{row.id}</text>
+              </g>
+            ))}
+
+            {(layer === "kriging" || layer === "uncertainty") && spatialSummary.grid.map((cell, i) => (
               <rect
-                x={sx(row.x - row.width / 2)}
-                y={sy(row.y2)}
-                width={(row.width / layout.widthM) * (width - pad * 2)}
-                height={sy(row.y1) - sy(row.y2)}
-                rx="14"
-                fill="rgba(34,197,94,0.16)"
-                stroke="rgba(34,197,94,0.40)"
-                strokeWidth="1.5"
-              />
-              <text x={sx(row.x) - 10} y={sy(row.y2) - 10} fill="rgba(226,232,240,0.72)" fontSize="12">{row.id}</text>
-            </g>
-          ))}
-
-          {(layer === "kriging" || layer === "uncertainty") && spatialSummary.grid.map((cell, i) => (
-            <rect
-              key={i}
-              x={sx(cell.x) - cellW / 2}
-              y={sy(cell.y) - cellH / 2}
-              width={cellW}
-              height={cellH}
-              fill={layer === "uncertainty" ? "#38bdf8" : maturityColor(cell.value)}
-              opacity={layer === "uncertainty" ? cell.uncertainty * 0.48 : opacityForUncertainty(cell.uncertainty) * 0.34}
-            />
-          ))}
-
-          {currentDetections
-            .filter((point) => point?.scanPose && Number.isFinite(point.scanPose.x) && Number.isFinite(point.scanPose.y))
-            .map((point) => (
-              <line
-                key={`scan-${point.id}`}
-                x1={sx(point.scanPose.x)}
-                y1={sy(point.scanPose.y)}
-                x2={sx(point.x)}
-                y2={sy(point.y)}
-                stroke="rgba(125,211,252,0.24)"
-                strokeWidth="1.5"
-                strokeDasharray="5 7"
+                key={i}
+                x={sx(cell.x) - cellW / 2}
+                y={sy(cell.y) - cellH / 2}
+                width={cellW}
+                height={cellH}
+                fill={layer === "uncertainty" ? "#38bdf8" : maturityColor(cell.value)}
+                opacity={layer === "uncertainty" ? cell.uncertainty * 0.48 : opacityForUncertainty(cell.uncertainty) * 0.34}
               />
             ))}
 
-          {currentRobotPose && (
-            <g>
-              <circle cx={sx(currentRobotPose.x)} cy={sy(currentRobotPose.y)} r="8" fill="#a78bfa" opacity="0.95" />
-              <circle cx={sx(currentRobotPose.x)} cy={sy(currentRobotPose.y)} r="16" fill="none" stroke="rgba(167,139,250,0.35)" />
-              <text x={sx(currentRobotPose.x) + 15} y={sy(currentRobotPose.y) - 10} fill="rgba(226,232,240,0.8)" fontSize="11">current robot</text>
-            </g>
-          )}
+            {currentDetections
+              .filter((point) => point?.scanPose && Number.isFinite(point.scanPose.x) && Number.isFinite(point.scanPose.y))
+              .map((point) => (
+                <line
+                  key={`scan-${point.id}`}
+                  x1={sx(point.scanPose.x)}
+                  y1={sy(point.scanPose.y)}
+                  x2={sx(point.x)}
+                  y2={sy(point.y)}
+                  stroke="rgba(125,211,252,0.24)"
+                  strokeWidth="1.5"
+                  strokeDasharray="5 7"
+                />
+              ))}
 
-          {samples.map((point) => {
-            const selected = selectedId === point.id;
-            return (
-              <g
-                key={point.id}
-                data-tomato-point="true"
-                onClick={(event) => {
-                  event.stopPropagation();
-                  setTooltipPosition({ x: event.clientX, y: event.clientY });
-                  onSelect(point);
-                }}
-                className="cursor-pointer"
-              >
-                <circle cx={sx(point.x)} cy={sy(point.y)} r={selected ? 15 : 10 + Math.min(point.count, 8)} fill={point.color} stroke={selected ? "#ffffff" : "rgba(255,255,255,0.42)"} strokeWidth={selected ? 3 : 1.5} />
-                <text x={sx(point.x) + 13} y={sy(point.y) - 12} fill="rgba(226,232,240,0.78)" fontSize="11">{point.id}</text>
+            {currentRobotPose && (
+              <g>
+                <circle cx={sx(currentRobotPose.x)} cy={sy(currentRobotPose.y)} r="8" fill="#a78bfa" opacity="0.95" />
+                <circle cx={sx(currentRobotPose.x)} cy={sy(currentRobotPose.y)} r="16" fill="none" stroke="rgba(167,139,250,0.35)" />
+                <text x={sx(currentRobotPose.x) + 15} y={sy(currentRobotPose.y) - 10} fill="rgba(226,232,240,0.8)" fontSize="11">current robot</text>
               </g>
-            );
-          })}
-        </svg>
+            )}
 
-        <TooltipCard
-          point={selectedPoint}
-          position={tooltipPosition}
-          timeScale={timeScale}
-          onClose={() => {
-            setTooltipPosition(null);
-            onSelect(null);
-          }}
-        />
-      </div>
+            {samples.map((point) => {
+              const selected = selectedId === point.id;
+              return (
+                <g
+                  key={point.id}
+                  data-tomato-point="true"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    setTooltipPosition({ x: event.clientX, y: event.clientY });
+                    onSelect(point);
+                  }}
+                  className="cursor-pointer"
+                >
+                  <circle cx={sx(point.x)} cy={sy(point.y)} r={selected ? 15 : 10 + Math.min(point.count, 8)} fill={point.color} stroke={selected ? "#ffffff" : "rgba(255,255,255,0.42)"} strokeWidth={selected ? 3 : 1.5} />
+                  <text x={sx(point.x) + 13} y={sy(point.y) - 12} fill="rgba(226,232,240,0.78)" fontSize="11">{point.id}</text>
+                </g>
+              );
+            })}
+          </svg>
 
-      <div className="mt-4 grid gap-3 text-xs text-slate-400 sm:grid-cols-4">
-        <div><span className="inline-block h-3 w-3 rounded-full bg-violet-400" /> current robot pose</div>
-        <div><span className="inline-block h-1 w-8 rounded-full bg-sky-300/50" /> scan link to tomato</div>
-        <div><span className="inline-block h-3 w-8 rounded-full bg-gradient-to-r from-green-700 to-red-700" /> maturity score</div>
-        <div><span className="inline-block h-3 w-8 rounded-full bg-cyan-400/60" /> uncertainty layer</div>
-      </div>
+          <TooltipCard
+            point={selectedPoint}
+            position={tooltipPosition}
+            timeScale={timeScale}
+            onClose={() => {
+              setTooltipPosition(null);
+              onSelect(null);
+            }}
+          />
+        </div>
 
-      <MaturityLegend />
-    </section>
-  );
+        <div className="mt-4 grid gap-3 text-xs text-slate-400 sm:grid-cols-4">
+          <div><span className="inline-block h-3 w-3 rounded-full bg-violet-400" /> current robot pose</div>
+          <div><span className="inline-block h-1 w-8 rounded-full bg-sky-300/50" /> scan link to tomato</div>
+          <div><span className="inline-block h-3 w-8 rounded-full bg-gradient-to-r from-green-700 to-red-700" /> maturity score</div>
+          <div><span className="inline-block h-3 w-8 rounded-full bg-cyan-400/60" /> uncertainty layer</div>
+        </div>
+
+        <MaturityLegend />
+      </>
+    ) : (
+      <SpatialStatsView summary={spatialSummary} />
+    )}
+  </section>
+);
 }
