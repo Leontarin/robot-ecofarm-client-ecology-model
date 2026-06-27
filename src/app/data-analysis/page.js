@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import GreenhouseMap from "./components/GreenhouseMap";
 import MicroclimatePanel from "./components/MicroclimatePanel";
 import ResearchRagPanel from "./components/ResearchRagPanel";
+import PcaPanel from "./components/PcaPanel";
 import TimelineControls from "./components/TimelineControls";
 import { buildFallbackEnvSeries, normalizeEnvSeries } from "./lib/dataParsers";
 import {
@@ -21,6 +22,7 @@ const TABS = [
   { id: "overview", label: "Overview" },
   { id: "map", label: "Greenhouse Map" },
   { id: "microclimate", label: "Microclimate / M5Stick" },
+  { id: "pca", label: "PCA" },
   { id: "quality", label: "Data Quality" },
   { id: "rag", label: "Research RAG" },
 ];
@@ -284,6 +286,8 @@ export default function DataAnalysisPage() {
         )}
 
         {activeTab === "microclimate" && <MicroclimatePanel />}
+
+        {activeTab === "pca" && <PcaPanel envSeries={envSeries} tomatoSamples={scenarioTomatoSamples} />}
 
         {activeTab === "quality" && <DataQualityPanel envSeries={envSeries} tomatoSamples={scenarioTomatoSamples} />}
 
