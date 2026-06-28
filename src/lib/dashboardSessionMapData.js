@@ -64,6 +64,12 @@ function sessionAssetUrl(sessionId, relativePath) {
   return `/api/session-file?session=${encodeURIComponent(sessionId)}&path=${encodeURIComponent(rel)}`;
 }
 
+function sessionVideoUrl(sessionId, relativePath) {
+  const rel = normalizeRelPath(relativePath);
+  if (!sessionId || !rel) return null;
+  return `/api/session-video?session=${encodeURIComponent(sessionId)}&path=${encodeURIComponent(rel)}`;
+}
+
 async function pathIsDir(dirPath) {
   try {
     const stat = await fs.stat(dirPath);
@@ -722,16 +728,6 @@ async function resolveVideoPath(sessionDir, manifest) {
   return unique[0] ?? "";
 }
 
-function hasLikelyBrowserVideo(videoPath) {
-  const normalized = normalizeRelPath(videoPath).toLowerCase();
-  return (
-    normalized.endsWith(".webm") ||
-    normalized.includes("browser") ||
-    normalized.includes("h264") ||
-    normalized.includes("web")
-  );
-}
-
 export function getDashboardRosMapSources() {
   const sessionRoot = resolveSessionRoot();
   const configuredSessionDir = resolveConfiguredSessionDir();
@@ -820,14 +816,17 @@ export async function buildDashboardRosMapPayload(sessionId = "") {
     },
     media: {
       videoPath,
-      videoUrl: sessionAssetUrl(resolvedSessionId, videoPath),
-      mimeType: videoMimeType(videoPath),
-      browserFriendlyNameRecommended: Boolean(videoPath) && !hasLikelyBrowserVideo(videoPath),
+      sourceVideoUrl: sessionAssetUrl(resolvedSessionId, videoPath),
+      browserVideoUrl: sessionVideoUrl(resolvedSessionId, videoPath),
+      videoUrl: sessionVideoUrl(resolvedSessionId, videoPath),
+      sourceMimeType: videoMimeType(videoPath),
+      mimeType: "video/mp4",
+      browserCompatible: Boolean(videoPath),
+      browserFriendlyNameRecommended: false,
       video: manifest?.video ?? null,
-      note:
-        Boolean(videoPath) && !hasLikelyBrowserVideo(videoPath)
-          ? "If this file was exported by OpenCV as MP4V, Chrome/Edge may not play it. Convert it to H.264 and save it as *_browser.mp4 in the same videos folder."
-          : null,
+      note: videoPath
+        ? "The dashboard requests a browser-compatible H.264 version of the saved recording. The server caches that encoded file after the first request."
+        : null,
     },
     map: {
       width: pgm.width,
