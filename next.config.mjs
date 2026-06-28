@@ -8,6 +8,7 @@ const nextConfig = {
   turbopack: {
     root: rootDir,
   },
+  serverExternalPackages: ["ffmpeg-static"],
 };
 
 export default nextConfig;

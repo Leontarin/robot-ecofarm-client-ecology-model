@@ -176,17 +176,37 @@ async function streamJsonLines(filePath, onLine) {
     crlfDelay: Infinity,
   });
 
+  let parsedLines = 0;
+  let invalidLines = 0;
+  let lfsPointerDetected = false;
+
   try {
-    let index = 0;
     for await (const line of rl) {
-      if (!line.trim()) continue;
-      await onLine(JSON.parse(line), index);
-      index += 1;
+      const trimmed = line.trim();
+      if (!trimmed) continue;
+
+      if (trimmed.startsWith("version https://git-lfs.github.com/spec/")) {
+        lfsPointerDetected = true;
+        invalidLines += 1;
+        continue;
+      }
+
+      try {
+        await onLine(JSON.parse(trimmed), parsedLines);
+        parsedLines += 1;
+      } catch {
+        // Keep the dashboard alive even if the JSONL file contains a bad line.
+        // This also protects ZIP downloads that contain a Git-LFS pointer file
+        // instead of the real, large debug log.
+        invalidLines += 1;
+      }
     }
   } finally {
     rl.close();
     stream.destroy();
   }
+
+  return { parsedLines, invalidLines, lfsPointerDetected };
 }
 
 async function getReplayCache() {
@@ -200,7 +220,7 @@ async function getReplayCache() {
   const entries = [];
   let totalEntries = 0;
 
-  await streamJsonLines(LOG_PATH, async (entry, index) => {
+  const parseStats = await streamJsonLines(LOG_PATH, async (entry, index) => {
     totalEntries += 1;
     if (!shouldKeepReplayEntry(entry, index, approxStep)) return;
     entries.push(entry);
@@ -214,6 +234,7 @@ async function getReplayCache() {
     totalEntries,
     fileUpdatedAt: stat.mtime.toISOString(),
     fileUpdatedMs: stat.mtimeMs,
+    parseStats,
   };
   streamState.startedAtMs = null;
   return replayCache;
@@ -257,14 +278,21 @@ export async function readDebugLog() {
 
 export async function readRealtimeDebugFrame() {
   const replay = await getReplayCache();
+
   if (!replay.entries.length) {
+    const latest = await getLatestCache();
+
     return {
-      current: null,
-      history: [],
+      current: latest.snapshot,
+      history: [latest.snapshot],
       index: 0,
-      fileUpdatedAt: replay.fileUpdatedAt,
-      fileUpdatedMs: replay.fileUpdatedMs,
-      totalEntries: 0,
+      fileUpdatedAt: latest.fileUpdatedAt,
+      fileUpdatedMs: latest.fileUpdatedMs,
+      totalEntries: 1,
+      sourceEntries: replay.totalEntries,
+      fallbackReason: replay.parseStats?.lfsPointerDetected
+        ? "debug-log-is-git-lfs-pointer"
+        : "debug-log-empty-or-invalid",
     };
   }
 

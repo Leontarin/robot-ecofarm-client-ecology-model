@@ -42,8 +42,13 @@ export async function fetchDetections() {
   return Array.isArray(raw) ? raw : [];
 }
 
-export async function fetchMap() {
-  return requestJson("/api/map");
+export async function fetchMap(sessionId = "") {
+  const qs = sessionId ? `?session=${encodeURIComponent(sessionId)}` : "";
+  return requestJson(`/api/map${qs}`);
+}
+
+export async function fetchDashboardSessions() {
+  return requestJson("/api/dashboard-sessions");
 }
 
 export async function fetchEnvAnalysis() {
