@@ -182,7 +182,6 @@ export default function TimelineControls({ timeScale, setTimeScale, bucketPositi
         {[
           ["observed", "Observed"],
           ["kriging", "Kriging prediction"],
-          ["autocorrelation", "Spatial autocorrelation"],
         ].map(([value, label]) => (
           <button
             key={value}
