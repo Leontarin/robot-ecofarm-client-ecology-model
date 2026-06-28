@@ -3,22 +3,16 @@ import { promises as fs } from "node:fs";
 
 const SESSION_DATA_DIR = path.join(process.cwd(), "src", "session-data");
 const SESSION_FOLDER_PATTERN = /^session[-_]\d{8}[-_]\d{6}$/;
-
-function assertValidSessionId(sessionId) {
-  if (typeof sessionId !== "string" || !SESSION_FOLDER_PATTERN.test(sessionId)) {
-    throw new Error(`Invalid robot session id: ${sessionId}`);
-  }
-}
-
-function getSessionDirectory(sessionId) {
-  assertValidSessionId(sessionId);
-  return path.join(SESSION_DATA_DIR, sessionId);
-}
+const ALLOWED_MEDIA_DIRECTORIES = new Set([
+  "images_ok",
+  "images_ok_raw",
+  "images_weak_noise",
+  "images_weak_noise_raw",
+  "videos",
+]);
 
 function toFiniteNumber(value) {
-  if (typeof value === "number" && Number.isFinite(value)) {
-    return value;
-  }
+  if (typeof value === "number" && Number.isFinite(value)) return value;
 
   if (typeof value === "string" && value.trim() !== "") {
     const parsed = Number(value);
@@ -36,13 +30,60 @@ function toStringOrNull(value) {
   return typeof value === "string" ? value : null;
 }
 
+function buildReadError(label, error) {
+  const message = error instanceof Error ? error.message : "Unknown error";
+  return new Error(`Could not read ${label}: ${message}`);
+}
+
+function assertValidSessionId(sessionId) {
+  if (typeof sessionId !== "string" || !SESSION_FOLDER_PATTERN.test(sessionId)) {
+    throw new Error(`Invalid robot session id: ${String(sessionId)}`);
+  }
+}
+
+function normalizeRelativeMediaPath(relativePath) {
+  if (typeof relativePath !== "string" || relativePath.trim() === "") {
+    throw new Error("A robot-session media path is required.");
+  }
+
+  const normalized = path.posix.normalize(relativePath.replaceAll("\\", "/"));
+
+  if (
+    normalized === "." ||
+    normalized.startsWith("/") ||
+    normalized.startsWith("../") ||
+    normalized.includes("/../")
+  ) {
+    throw new Error("Invalid robot-session media path.");
+  }
+
+  const firstSegment = normalized.split("/")[0];
+
+  if (!ALLOWED_MEDIA_DIRECTORIES.has(firstSegment)) {
+    throw new Error("Requested media directory is not allowed.");
+  }
+
+  return normalized;
+}
+
 async function readJsonFile(filePath, label) {
   try {
     const content = await fs.readFile(filePath, "utf8");
     return JSON.parse(content);
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Unknown error";
-    throw new Error(`Could not read ${label}: ${message}`);
+    throw buildReadError(label, error);
+  }
+}
+
+async function readOptionalJsonFile(filePath, label) {
+  try {
+    return await readJsonFile(filePath, label);
+  } catch (error) {
+    if (error?.cause?.code === "ENOENT" || /ENOENT/.test(error?.message ?? "")) {
+      return null;
+    }
+
+    throw error;
   }
 }
 
@@ -52,19 +93,33 @@ async function readJsonlFile(filePath, label) {
   try {
     content = await fs.readFile(filePath, "utf8");
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Unknown error";
-    throw new Error(`Could not read ${label}: ${message}`);
+    throw buildReadError(label, error);
   }
 
+  const rows = [];
   const lines = content.split(/\r?\n/).filter((line) => line.trim() !== "");
 
-  return lines.map((line, index) => {
+  lines.forEach((line, index) => {
     try {
-      return JSON.parse(line);
+      rows.push(JSON.parse(line));
     } catch {
       throw new Error(`Invalid JSONL row ${index + 1} in ${label}.`);
     }
   });
+
+  return rows;
+}
+
+async function readOptionalJsonlFile(filePath, label) {
+  try {
+    return await readJsonlFile(filePath, label);
+  } catch (error) {
+    if (error?.cause?.code === "ENOENT" || /ENOENT/.test(error?.message ?? "")) {
+      return [];
+    }
+
+    throw error;
+  }
 }
 
 function buildSessionSummary(folderName, manifest) {
@@ -97,47 +152,41 @@ function normalizeCameraView(cameraView) {
   };
 }
 
-function normalizeDetection(detection, eventId, index) {
+function normalizeDetection(detection, eventId, detectionIndex) {
   const bbox = detection?.bbox ?? {};
+  const metrics = detection?.metrics ?? {};
 
   return {
-    id: `${eventId}-detection-${index}`,
+    id: `${eventId}-d${detectionIndex}`,
     label: toStringOrNull(detection?.label),
     classId: toFiniteNumber(detection?.class_id),
     confidence: toFiniteNumber(detection?.confidence),
     currentConfidence: toFiniteNumber(detection?.current_confidence),
     bestConfidence: toFiniteNumber(detection?.best_confidence),
-
     valid: toBooleanOrNull(detection?.valid),
     weak: toBooleanOrNull(detection?.weak),
     displaySuppressed: toBooleanOrNull(detection?.display_suppressed),
     rejectReason: toStringOrNull(detection?.reject_reason),
-
     maturityScore: toFiniteNumber(detection?.maturity_score),
     maturityScoreRipe: toFiniteNumber(detection?.maturity_score_ripe),
     maturityScoreUnripe: toFiniteNumber(detection?.maturity_score_unripe),
-
     trackId: toFiniteNumber(detection?.track_id),
     trackHits: toFiniteNumber(detection?.track_hits),
     trackStableBest: toBooleanOrNull(detection?.track_stable_best),
-
     bbox: {
       x: toFiniteNumber(bbox?.x),
       y: toFiniteNumber(bbox?.y),
       w: toFiniteNumber(bbox?.w),
       h: toFiniteNumber(bbox?.h),
     },
-
     metrics: {
-      boxArea: toFiniteNumber(detection?.metrics?.box_area),
-      maskArea: toFiniteNumber(detection?.metrics?.mask_area),
-      maskDensity: toFiniteNumber(detection?.metrics?.mask_density),
-      redRatio: toFiniteNumber(detection?.metrics?.red_ratio),
-      orangeRatio: toFiniteNumber(detection?.metrics?.orange_ratio),
-      warmRatio: toFiniteNumber(detection?.metrics?.warm_ratio),
-      greenYellowRatio: toFiniteNumber(
-        detection?.metrics?.green_yellow_ratio,
-      ),
+      boxArea: toFiniteNumber(metrics?.box_area),
+      maskArea: toFiniteNumber(metrics?.mask_area),
+      maskDensity: toFiniteNumber(metrics?.mask_density),
+      redRatio: toFiniteNumber(metrics?.red_ratio),
+      orangeRatio: toFiniteNumber(metrics?.orange_ratio),
+      warmRatio: toFiniteNumber(metrics?.warm_ratio),
+      greenYellowRatio: toFiniteNumber(metrics?.green_yellow_ratio),
     },
   };
 }
@@ -145,7 +194,7 @@ function normalizeDetection(detection, eventId, index) {
 function normalizeDetectionEvent(event, index) {
   const eventId = [
     toFiniteNumber(event?.timestamp_ms) ?? "unknown-time",
-    event?.event_type ?? "unknown-event",
+    toStringOrNull(event?.event_type) ?? "unknown-event",
     index,
   ].join("-");
 
@@ -167,24 +216,19 @@ function normalizeDetectionEvent(event, index) {
     eventType: toStringOrNull(event?.event_type),
     timestampMs: toFiniteNumber(event?.timestamp_ms),
     timestampLocal: toStringOrNull(event?.timestamp_local),
-
     imagePath: toStringOrNull(event?.image_path),
     annotatedImagePath: toStringOrNull(event?.annotated_image_path),
     rawImagePath: toStringOrNull(event?.raw_image_path),
-
     frame: {
       width: toFiniteNumber(event?.frame?.width),
       height: toFiniteNumber(event?.frame?.height),
       channels: toFiniteNumber(event?.frame?.channels),
       timestampMs: toFiniteNumber(event?.frame?.timestamp_ms),
     },
-
     camera: normalizeCameraView(event?.camera_view),
-
     acceptedCount: toFiniteNumber(event?.accepted_count),
     weakCount: toFiniteNumber(event?.weak_count),
     rejectedCount: toFiniteNumber(event?.rejected_count),
-
     detections,
     acceptedDetections,
   };
@@ -215,12 +259,8 @@ function normalizeLidarPreview(payload) {
     coordinateFrame: toStringOrNull(payload?.coordinate_frame),
     units: payload?.units ?? {},
     gridResolutionM: toFiniteNumber(payload?.grid_resolution_m),
-    scansAcceptedForPreview: toFiniteNumber(
-      payload?.scans_accepted_for_preview,
-    ),
-    scansSkippedNoMotion: toFiniteNumber(
-      payload?.scans_skipped_no_motion,
-    ),
+    scansAcceptedForPreview: toFiniteNumber(payload?.scans_accepted_for_preview),
+    scansSkippedNoMotion: toFiniteNumber(payload?.scans_skipped_no_motion),
     reportedPointCount: toFiniteNumber(payload?.point_count),
     pointCount: points.length,
     points,
@@ -230,18 +270,15 @@ function normalizeLidarPreview(payload) {
 function normalizeTimelineRow(row) {
   return {
     timestampMs: toFiniteNumber(row?.timestamp_ms),
-    timestampLocal: row?.timestamp_local ?? null,
-
+    timestampLocal: toStringOrNull(row?.timestamp_local),
     temperatureC: toFiniteNumber(row?.environment?.temp_c),
     humidityPct: toFiniteNumber(row?.environment?.humidity_pct),
     pressureHpa: toFiniteNumber(row?.environment?.pressure_hpa),
     environmentValid: toBooleanOrNull(row?.environment?.valid),
     environmentFresh: toBooleanOrNull(row?.environment?.fresh),
-
     acceptedCount: toFiniteNumber(row?.perception?.accepted_count),
     weakCount: toFiniteNumber(row?.perception?.weak_count),
     rejectedCount: toFiniteNumber(row?.perception?.rejected_count),
-
     frontDistanceM: toFiniteNumber(row?.lidar?.front_m),
     leftDistanceM: toFiniteNumber(row?.lidar?.left_m),
     rightDistanceM: toFiniteNumber(row?.lidar?.right_m),
@@ -251,31 +288,63 @@ function normalizeTimelineRow(row) {
     lidarFresh: toBooleanOrNull(row?.lidar?.fresh),
     headingHintDeg: toFiniteNumber(row?.lidar?.heading_hint_deg),
     centerErrorM: toFiniteNumber(row?.lidar?.center_error_m),
-
     panRelativeDeg: toFiniteNumber(row?.camera_view?.pan_relative_deg),
     tiltRelativeDeg: toFiniteNumber(row?.camera_view?.tilt_relative_deg),
     digitalZoom: toFiniteNumber(row?.camera_view?.digital_zoom),
     cameraValid: toBooleanOrNull(row?.camera_view?.valid),
-
     forwardSpeed: toFiniteNumber(row?.drive?.forward_speed),
     steeringSpeed: toFiniteNumber(row?.drive?.steering_speed),
-
     warningActive: toBooleanOrNull(row?.robot?.warning_active),
     emergencyStop: toBooleanOrNull(row?.robot?.emergency_stop),
-    robotStatus: row?.robot?.status_text ?? null,
+    robotStatus: toStringOrNull(row?.robot?.status_text),
+  };
+}
+
+export function getRobotSessionDirectory(sessionId) {
+  assertValidSessionId(sessionId);
+  return path.join(SESSION_DATA_DIR, sessionId);
+}
+
+export async function resolveRobotSessionMediaFile(sessionId, requestedPath) {
+  const sessionDirectory = getRobotSessionDirectory(sessionId);
+  const safeRelativePath = normalizeRelativeMediaPath(requestedPath);
+  const filePath = path.join(sessionDirectory, safeRelativePath);
+  const relativeToSession = path.relative(sessionDirectory, filePath);
+
+  if (
+    relativeToSession.startsWith("..") ||
+    path.isAbsolute(relativeToSession)
+  ) {
+    throw new Error("Invalid robot-session media path.");
+  }
+
+  let stat;
+
+  try {
+    stat = await fs.stat(filePath);
+  } catch (error) {
+    throw buildReadError(`media file ${safeRelativePath}`, error);
+  }
+
+  if (!stat.isFile()) {
+    throw new Error("Requested robot-session media entry is not a file.");
+  }
+
+  return {
+    filePath,
+    relativePath: safeRelativePath,
+    fileName: path.basename(filePath),
+    sizeBytes: stat.size,
   };
 }
 
 export async function listRobotSessions() {
-  let entries = [];
+  let entries;
 
   try {
     entries = await fs.readdir(SESSION_DATA_DIR, { withFileTypes: true });
   } catch (error) {
-    if (error?.code === "ENOENT") {
-      return [];
-    }
-
+    if (error?.code === "ENOENT") return [];
     throw error;
   }
 
@@ -297,7 +366,6 @@ export async function listRobotSessions() {
             manifestPath,
             `${entry.name}/session_manifest.json`,
           );
-
           return buildSessionSummary(entry.name, manifest);
         } catch {
           return null;
@@ -315,7 +383,7 @@ export async function listRobotSessions() {
 }
 
 export async function readRobotSession(sessionId) {
-  const sessionDir = getSessionDirectory(sessionId);
+  const sessionDirectory = getRobotSessionDirectory(sessionId);
 
   const [
     manifest,
@@ -325,33 +393,32 @@ export async function readRobotSession(sessionId) {
     lidarPreviewDocument,
   ] = await Promise.all([
     readJsonFile(
-      path.join(sessionDir, "session_manifest.json"),
+      path.join(sessionDirectory, "session_manifest.json"),
       `${sessionId}/session_manifest.json`,
     ),
     readJsonFile(
-      path.join(sessionDir, "latest.json"),
+      path.join(sessionDirectory, "latest.json"),
       `${sessionId}/latest.json`,
     ),
-    readJsonlFile(
-      path.join(sessionDir, "robot_timeline.jsonl"),
+    readOptionalJsonlFile(
+      path.join(sessionDirectory, "robot_timeline.jsonl"),
       `${sessionId}/robot_timeline.jsonl`,
     ),
-    readJsonlFile(
-      path.join(sessionDir, "detection_events.jsonl"),
+    readOptionalJsonlFile(
+      path.join(sessionDirectory, "detection_events.jsonl"),
       `${sessionId}/detection_events.jsonl`,
     ),
-    readJsonFile(
-      path.join(sessionDir, "lidar", "lidar_map_preview.json"),
+    readOptionalJsonFile(
+      path.join(sessionDirectory, "lidar", "lidar_map_preview.json"),
       `${sessionId}/lidar/lidar_map_preview.json`,
     ),
   ]);
 
   return {
     session: buildSessionSummary(sessionId, manifest),
-    manifest,
     latest,
     timeline: timelineRows.map(normalizeTimelineRow),
     detectionEvents: detectionEventRows.map(normalizeDetectionEvent),
-    lidarPreview: normalizeLidarPreview(lidarPreviewDocument),
+    lidarPreview: normalizeLidarPreview(lidarPreviewDocument ?? {}),
   };
 }

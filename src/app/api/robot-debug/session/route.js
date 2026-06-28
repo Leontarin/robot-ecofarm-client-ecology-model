@@ -11,7 +11,6 @@ export async function GET(request) {
   try {
     const sessions = await listRobotSessions();
     const { searchParams } = new URL(request.url);
-
     const requestedSessionId = searchParams.get("session");
     const selectedSessionId = requestedSessionId ?? sessions[0]?.id ?? null;
 

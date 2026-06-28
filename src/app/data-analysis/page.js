@@ -3,8 +3,8 @@
 import { useEffect, useMemo, useState } from "react";
 import GreenhouseMap from "./components/GreenhouseMap";
 import MicroclimatePanel from "./components/MicroclimatePanel";
-import ResearchRagPanel from "./components/ResearchRagPanel";
 import RobotDebugPanel from "./components/RobotDebugPanel";
+import ResearchRagPanel from "./components/ResearchRagPanel";
 import PcaPanel from "./components/PcaPanel";
 import TimelineControls from "./components/TimelineControls";
 import { buildFallbackEnvSeries, normalizeEnvSeries } from "./lib/dataParsers";
@@ -156,8 +156,8 @@ function DataQualityPanel({ envSeries, tomatoSamples }) {
         <div className="rounded-3xl border border-slate-800 bg-slate-950/70 p-4">
           <div className="text-sm font-semibold text-white">Still missing from the robot project</div>
           <ul className="mt-3 space-y-2 text-sm leading-6 text-slate-400">
-            <li>• Real YOLO12M tomato detection log.</li>
-            <li>• Real tomato cluster coordinates relative to the LiDAR map.</li>
+            <li>• Verified greenhouse-world pose and tomato coordinates. Robot Debug currently uses a session-local estimate.</li>
+            <li>• Camera/LiDAR calibration and depth required for a verified tomato map.</li>
             <li>• Confirmed greenhouse dimensions and row geometry.</li>
             <li>• Repeated scans over time for maturity trend validation.</li>
           </ul>
