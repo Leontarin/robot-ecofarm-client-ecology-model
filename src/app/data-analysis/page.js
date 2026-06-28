@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import GreenhouseMap from "./components/GreenhouseMap";
 import MicroclimatePanel from "./components/MicroclimatePanel";
 import ResearchRagPanel from "./components/ResearchRagPanel";
+import RobotDebugPanel from "./components/RobotDebugPanel";
 import PcaPanel from "./components/PcaPanel";
 import TimelineControls from "./components/TimelineControls";
 import { buildFallbackEnvSeries, normalizeEnvSeries } from "./lib/dataParsers";
@@ -22,6 +23,7 @@ const TABS = [
   { id: "overview", label: "Overview" },
   { id: "map", label: "Greenhouse Map" },
   { id: "microclimate", label: "Microclimate / M5Stick" },
+  { id: "robot-debug", label: "Robot Debug" },
   { id: "pca", label: "PCA" },
   { id: "quality", label: "Data Quality" },
   { id: "rag", label: "Research RAG" },
@@ -249,7 +251,9 @@ export default function DataAnalysisPage() {
           ))}
         </nav>
 
-        <ScenarioControls scenarioId={scenarioId} setScenarioId={setScenarioId} />
+        {activeTab !== "robot-debug" && (
+          <ScenarioControls scenarioId={scenarioId} setScenarioId={setScenarioId} />
+        )}
 
         {activeTab === "overview" && (
           <OverviewPanel
@@ -286,6 +290,8 @@ export default function DataAnalysisPage() {
         )}
 
         {activeTab === "microclimate" && <MicroclimatePanel />}
+
+        {activeTab === "robot-debug" && <RobotDebugPanel />}
 
         {activeTab === "pca" && <PcaPanel envSeries={envSeries} tomatoSamples={scenarioTomatoSamples} />}
 
