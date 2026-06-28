@@ -108,6 +108,79 @@ export const PCA_VARIABLES = [
   { key: "count", label: "Tomato count", unit: "count" },
 ];
 
+const PCA_LABEL_GROUPS = [
+  {
+    label: "Microclimate gradient",
+    keys: ["tempC", "humidityPct", "pressureHpa", "gasKohm"],
+  },
+  {
+    label: "Spatial position gradient",
+    keys: ["x", "y"],
+  },
+  {
+    label: "Temporal gradient",
+    keys: ["timeMin"],
+  },
+  {
+    label: "Tomato maturity gradient",
+    keys: ["maturityScore", "count"],
+  },
+];
+
+function labelPrincipalComponent(loadings, componentKey) {
+  const ranked = [...loadings]
+    .map((loading) => ({
+      ...loading,
+      strength: Math.abs(loading[componentKey] ?? 0),
+    }))
+    .sort((a, b) => b.strength - a.strength);
+
+  const strongest = ranked.slice(0, 4);
+
+  const groupScores = PCA_LABEL_GROUPS.map((group) => ({
+    label: group.label,
+    score: strongest
+      .filter((item) => group.keys.includes(item.key))
+      .reduce((sum, item) => sum + item.strength, 0),
+  })).sort((a, b) => b.score - a.score);
+
+  const primary = groupScores[0];
+  const secondary = groupScores[1];
+
+  if (!primary || primary.score <= 0) {
+    return {
+      label: "Mixed PCA gradient",
+      explanation: "No single variable group dominates this component.",
+      strongest,
+    };
+  }
+
+  if (secondary && secondary.score > primary.score * 0.65) {
+    return {
+      label: `${primary.label} + ${secondary.label}`,
+      explanation: `This component is mainly influenced by ${primary.label.toLowerCase()} and ${secondary.label.toLowerCase()}.`,
+      strongest,
+    };
+  }
+
+  return {
+    label: primary.label,
+    explanation: `This component is mainly influenced by ${primary.label.toLowerCase()}.`,
+    strongest,
+  };
+}
+
+function interpretPrincipalComponents(loadings, componentCount) {
+  return Array.from({ length: componentCount }, (_, index) => {
+    const componentKey = `pc${index + 1}`;
+    return {
+      id: `PC${index + 1}`,
+      componentKey,
+      ...labelPrincipalComponent(loadings, componentKey),
+    };
+  });
+}
+
 export function buildPcaDataset(envSeries, tomatoSamples) {
   const samples = tomatoSamples.filter((sample) => Number.isFinite(sample.x) && Number.isFinite(sample.y));
   if (!samples.length) return [];
@@ -197,12 +270,14 @@ export function calculatePca(envSeries, tomatoSamples, maxComponents = 3) {
     return item;
   });
 
-  const explainedVariance = components.map((component) => component.explainedRatio);
+ const explainedVariance = components.map((component) => component.explainedRatio);
   let running = 0;
   const cumulativeVariance = explainedVariance.map((value) => {
     running += value;
     return running;
   });
+
+  const componentInterpretations = interpretPrincipalComponents(loadings, components.length);
 
   return {
     ready: true,
@@ -212,6 +287,7 @@ export function calculatePca(envSeries, tomatoSamples, maxComponents = 3) {
     components,
     scores,
     loadings,
+    componentInterpretations,
     explainedVariance,
     cumulativeVariance,
   };

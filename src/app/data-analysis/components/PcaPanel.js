@@ -220,21 +220,55 @@ function LoadingsTable({ pca }) {
 function InterpretationBox({ pca }) {
   const pc1 = strongestLoadings(pca.loadings, "pc1", 3);
   const pc2 = strongestLoadings(pca.loadings, "pc2", 3);
+  const pc1Interpretation = pca.componentInterpretations?.find((item) => item.id === "PC1");
+  const pc2Interpretation = pca.componentInterpretations?.find((item) => item.id === "PC2");
 
   return (
     <div className="rounded-3xl border border-slate-800 bg-slate-950/70 p-4">
       <div className="text-sm font-semibold text-white">Interpretation for the model</div>
+
       <div className="mt-3 grid gap-4 lg:grid-cols-2">
+        <div className="rounded-2xl border border-cyan-400/20 bg-cyan-400/10 p-3">
+          <div className="text-xs font-semibold uppercase tracking-[0.18em] text-cyan-300">
+            PC1 automatic label
+          </div>
+          <div className="mt-2 text-lg font-semibold text-white">
+            {pc1Interpretation?.label ?? "Mixed PCA gradient"}
+          </div>
+          <p className="mt-2 text-sm leading-6 text-slate-300">
+            {pc1Interpretation?.explanation ?? "This component is interpreted from the current loading values."}
+          </p>
+        </div>
+
+        <div className="rounded-2xl border border-fuchsia-400/20 bg-fuchsia-400/10 p-3">
+          <div className="text-xs font-semibold uppercase tracking-[0.18em] text-fuchsia-300">
+            PC2 automatic label
+          </div>
+          <div className="mt-2 text-lg font-semibold text-white">
+            {pc2Interpretation?.label ?? "Mixed PCA gradient"}
+          </div>
+          <p className="mt-2 text-sm leading-6 text-slate-300">
+            {pc2Interpretation?.explanation ?? "This component is interpreted from the current loading values."}
+          </p>
+        </div>
+      </div>
+
+      <div className="mt-4 grid gap-4 lg:grid-cols-2">
         <div className="rounded-2xl border border-slate-800 bg-slate-900/70 p-3">
-          <div className="text-xs font-semibold uppercase tracking-[0.18em] text-cyan-300">PC1 strongest variables</div>
+          <div className="text-xs font-semibold uppercase tracking-[0.18em] text-cyan-300">
+            PC1 strongest variables
+          </div>
           <ul className="mt-2 space-y-1 text-sm text-slate-300">
             {pc1.map((item) => (
               <li key={item.key}>• {item.label}: {(item.pc1 ?? 0).toFixed(3)}</li>
             ))}
           </ul>
         </div>
+
         <div className="rounded-2xl border border-slate-800 bg-slate-900/70 p-3">
-          <div className="text-xs font-semibold uppercase tracking-[0.18em] text-fuchsia-300">PC2 strongest variables</div>
+          <div className="text-xs font-semibold uppercase tracking-[0.18em] text-fuchsia-300">
+            PC2 strongest variables
+          </div>
           <ul className="mt-2 space-y-1 text-sm text-slate-300">
             {pc2.map((item) => (
               <li key={item.key}>• {item.label}: {(item.pc2 ?? 0).toFixed(3)}</li>
@@ -242,8 +276,10 @@ function InterpretationBox({ pca }) {
           </ul>
         </div>
       </div>
+
       <p className="mt-4 text-sm leading-6 text-slate-400">
-        PCA is exploratory: PC1 and PC2 are interpreted from the loadings after calculation. This panel uses the current M5Stick series together with the tomato maturity layer available in the selected simulation scenario.
+        PCA is exploratory: PC1 and PC2 are interpreted from the loadings after calculation.
+        The automatic labels are generated from the strongest loading groups in the current data layer and may change when the selected scenario or time position changes.
       </p>
     </div>
   );
@@ -251,6 +287,8 @@ function InterpretationBox({ pca }) {
 
 export default function PcaPanel({ envSeries, tomatoSamples }) {
   const pca = calculatePca(envSeries, tomatoSamples, 3);
+  const pc1Label = pca.componentInterpretations?.find((item) => item.id === "PC1")?.label;
+  const pc2Label = pca.componentInterpretations?.find((item) => item.id === "PC2")?.label;
 
   if (!pca.ready) {
     return (
@@ -275,8 +313,8 @@ export default function PcaPanel({ envSeries, tomatoSamples }) {
       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
         <MetricCard label="Observations" value={pca.rows.length} detail="Tomato cluster observations used in PCA." />
         <MetricCard label="Variables" value={pca.variables.length} detail="Standardized input variables." />
-        <MetricCard label="PC1 variance" value={formatPercent(pca.explainedVariance[0])} detail="Largest direction of variation." />
-        <MetricCard label="PC1 + PC2" value={formatPercent(pca.cumulativeVariance[1])} detail="Cumulative explained variance." />
+        <MetricCard label="PC1 variance" value={formatPercent(pca.explainedVariance[0])} detail={pc1Label ? `Main axis: ${pc1Label}` : "Largest direction of variation."} />
+        <MetricCard label="PC1 + PC2" value={formatPercent(pca.cumulativeVariance[1])} detail={pc2Label ? `PC2 axis: ${pc2Label}` : "Cumulative explained variance."} />
       </div>
 
       <Biplot pca={pca} />
