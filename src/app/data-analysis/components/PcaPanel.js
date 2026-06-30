@@ -72,7 +72,7 @@ function Biplot({ pca }) {
         <div>
           <div className="text-sm font-semibold text-white">PC1 / PC2 biplot</div>
           <div className="mt-1 text-xs text-slate-400">
-            Points are tomato clusters. Arrows show original variable loadings. Select a variable in the legend to highlight its arrow.
+            Points are real selected-session tomato landmarks. Arrows show original variable loadings. Select a variable in the legend to highlight its arrow.
           </div>
         </div>
         <div className="text-xs text-slate-400">
@@ -279,7 +279,7 @@ function InterpretationBox({ pca }) {
 
       <p className="mt-4 text-sm leading-6 text-slate-400">
         PCA is exploratory: PC1 and PC2 are interpreted from the loadings after calculation.
-        The automatic labels are generated from the strongest loading groups in the current data layer and may change when the selected scenario or time position changes.
+        The automatic labels are generated from the strongest loading groups in the current data layer and may change when the selected session or timeline position changes.
       </p>
     </div>
   );
@@ -306,12 +306,12 @@ export default function PcaPanel({ envSeries, tomatoSamples }) {
         <div className="text-[11px] font-semibold uppercase tracking-[0.3em] text-cyan-300">PCA analysis</div>
         <h2 className="mt-2 text-2xl font-semibold text-white">Principal Component Analysis for EcoFarm variables</h2>
         <p className="mt-2 max-w-4xl text-sm leading-6 text-slate-400">
-          PCA standardizes the selected environmental, spatial, and tomato variables, computes principal components, and shows which variables explain most of the variation in the current data layer.
+          PCA standardizes the selected environmental, spatial, and tomato variables, computes principal components, and shows which variables explain most of the variation in the current selected-session data.
         </p>
       </div>
 
       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-        <MetricCard label="Observations" value={pca.rows.length} detail="Tomato cluster observations used in PCA." />
+        <MetricCard label="Observations" value={pca.rows.length} detail="Real selected-session tomato landmarks used in PCA." />
         <MetricCard label="Variables" value={pca.variables.length} detail="Standardized input variables." />
         <MetricCard label="PC1 variance" value={formatPercent(pca.explainedVariance[0])} detail={pc1Label ? `Main axis: ${pc1Label}` : "Largest direction of variation."} />
         <MetricCard label="PC1 + PC2" value={formatPercent(pca.cumulativeVariance[1])} detail={pc2Label ? `PC2 axis: ${pc2Label}` : "Cumulative explained variance."} />

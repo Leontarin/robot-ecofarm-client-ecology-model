@@ -34,7 +34,7 @@ function MetricCard({ label, value, detail, tone = "slate" }) {
   );
 }
 
-export default function RobotDebugPanel() {
+export default function RobotDebugPanel({ sessionId: requestedSessionId = "" }) {
   const [payload, setPayload] = useState(null);
   const [selectedSessionId, setSelectedSessionId] = useState("");
   const [loading, setLoading] = useState(true);
@@ -72,8 +72,8 @@ export default function RobotDebugPanel() {
   }
 
   useEffect(() => {
-    loadSession();
-  }, []);
+    loadSession(requestedSessionId);
+  }, [requestedSessionId]);
 
   const latest = payload?.latest ?? null;
   const session = payload?.session ?? null;
@@ -136,36 +136,24 @@ export default function RobotDebugPanel() {
             </div>
             <h2 className="mt-2 text-2xl font-semibold text-white">Robot Debug</h2>
             <p className="mt-2 max-w-4xl text-sm leading-6 text-slate-400">
-              Inspect saved robot runs and reconstruct an estimated session-local
-              top-down map from real robot telemetry. This is separate from the
-              mock ecological spatial layer and does not feed Greenhouse Map,
-              PCA, scenarios, or Kriging-style prediction.
+              Inspect the same globally selected saved session and reconstruct an estimated session-local
+              top-down map from real robot telemetry. The selected session is shared with the real Data Analysis
+              tabs; this debug visualization remains separate from the ecological Kriging calculation.
             </p>
           </div>
 
-          <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
-            <label className="flex flex-col gap-2 text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">
-              Active session
-              <select
-                value={selectedSessionId}
-                onChange={(event) => loadSession(event.target.value)}
-                className="min-w-[270px] rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm font-medium normal-case tracking-normal text-white outline-none transition focus:border-cyan-400"
-              >
-                {payload.sessions.map((item) => (
-                  <option key={item.id} value={item.id}>
-                    {item.id}
-                  </option>
-                ))}
-              </select>
-            </label>
-
+          <div className="flex flex-col gap-2 sm:items-end">
+            <div className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">Global selected session</div>
+            <div className="rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm font-medium text-white">
+              {selectedSessionId || "No session selected"}
+            </div>
             <button
               type="button"
               onClick={() => loadSession(selectedSessionId)}
               disabled={loading}
               className="rounded-xl border border-cyan-400/30 bg-cyan-400/10 px-4 py-2 text-sm font-semibold text-cyan-100 transition hover:border-cyan-300 hover:bg-cyan-400/20 disabled:cursor-not-allowed disabled:opacity-50"
             >
-              {loading ? "Refreshing…" : "Refresh"}
+              {loading ? "Refreshing…" : "Refresh this session"}
             </button>
           </div>
         </div>

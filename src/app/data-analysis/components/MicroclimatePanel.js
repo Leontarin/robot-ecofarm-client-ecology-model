@@ -108,6 +108,7 @@ const Y_SCALE_MODES = {
 };
 
 function num(value) {
+  if (value == null || value === "") return null;
   const n = Number(value);
   return Number.isFinite(n) ? n : null;
 }
@@ -1571,7 +1572,7 @@ function CorrelationMatrix({ correlations }) {
   );
 }
 
-export default function MicroclimatePanel() {
+export default function MicroclimatePanel({ payload = null, sessionLabel = null }) {
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
   const [activeMetric, setActiveMetric] = useState("tempC");
@@ -1579,30 +1580,9 @@ export default function MicroclimatePanel() {
   const [yScaleMode, setYScaleMode] = useState("context");
 
   useEffect(() => {
-    let alive = true;
-
-    async function load() {
-      try {
-        const response = await fetch('/api/env-analysis', { cache: 'no-store' });
-        if (!response.ok) throw new Error(`ENV analysis request failed (${response.status})`);
-        const payload = await response.json();
-
-        if (!alive) return;
-
-        setData(payload);
-        setError(null);
-      } catch (err) {
-        if (!alive) return;
-        setError(err?.message || "Failed to load analysis");
-      }
-    }
-
-    load();
-
-    return () => {
-      alive = false;
-    };
-  }, []);
+    setData(payload ?? null);
+    setError(null);
+  }, [payload]);
 
   const analysis = useMemo(() => {
     if (!data) return null;
@@ -1696,13 +1676,18 @@ export default function MicroclimatePanel() {
             </div>
 
             <h1 className="mt-3 text-4xl font-semibold tracking-tight text-white">
-              M5Stick Run Analysis
+              M5Stick Session Analysis
             </h1>
 
             <div className="mt-3 flex flex-wrap gap-2">
               <div className="rounded-full border border-slate-700 bg-slate-950/60 px-3 py-1.5 text-sm text-slate-200">
                 {analysis ? `${analysis.sampleCount} ENV samples` : "…"}
               </div>
+              {sessionLabel ? (
+                <div className="rounded-full border border-cyan-400/25 bg-cyan-400/10 px-3 py-1.5 text-sm text-cyan-100">
+                  {sessionLabel}
+                </div>
+              ) : null}
 
               <div className="rounded-full border border-slate-700 bg-slate-950/60 px-3 py-1.5 text-sm text-slate-200">
                 {analysis ? compactTime(analysis.rawSeries.at(-1)?.tSec ?? 0) : "…"} raw run
@@ -1733,8 +1718,8 @@ export default function MicroclimatePanel() {
 
               <TinyKpi
                 label="IMU Valid"
-                value={`${((analysis.validity.imuPct ?? 0) * 100).toFixed(1)}%`}
-                tone={qualityTone(analysis.validity.imuPct ?? 0)}
+                value={analysis.validity.imuPct == null ? "—" : `${(analysis.validity.imuPct * 100).toFixed(1)}%`}
+                tone={analysis.validity.imuPct == null ? "slate" : qualityTone(analysis.validity.imuPct)}
               />
             </div>
           )}
@@ -1749,7 +1734,7 @@ export default function MicroclimatePanel() {
 
       {!analysis ? (
         <div className="rounded-3xl border border-slate-800 bg-slate-900/65 p-8 text-sm text-slate-300">
-          Loading...
+          Loading selected-session M5Stick data...
         </div>
       ) : (
         <>

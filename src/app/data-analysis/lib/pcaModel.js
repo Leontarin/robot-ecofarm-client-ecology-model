@@ -1,222 +1,174 @@
-function safeNumber(value, fallback = null) {
-  const n = Number(value);
-  return Number.isFinite(n) ? n : fallback;
+function finite(value, fallback = null) {
+  if (value == null || value === "") return fallback;
+  const number = Number(value);
+  return Number.isFinite(number) ? number : fallback;
 }
 
 function mean(values) {
-  if (!values.length) return 0;
-  return values.reduce((sum, value) => sum + value, 0) / values.length;
+  const usable = values.filter((value) => Number.isFinite(value));
+  return usable.length ? usable.reduce((sum, value) => sum + value, 0) / usable.length : null;
 }
 
-function std(values) {
-  if (values.length < 2) return 1;
-  const avg = mean(values);
-  const variance = values.reduce((sum, value) => sum + (value - avg) ** 2, 0) / (values.length - 1);
+function standardDeviation(values, average) {
+  const usable = values.filter((value) => Number.isFinite(value));
+  if (usable.length < 2 || !Number.isFinite(average)) return null;
+  const variance = usable.reduce((sum, value) => sum + (value - average) ** 2, 0) / (usable.length - 1);
   const result = Math.sqrt(variance);
-  return result > 0 ? result : 1;
+  return result > 1e-9 ? result : null;
 }
 
 function dot(a, b) {
   return a.reduce((sum, value, index) => sum + value * b[index], 0);
 }
 
-function norm(vector) {
-  return Math.sqrt(dot(vector, vector)) || 1;
-}
-
-function multiplyMatrixVector(matrix, vector) {
-  return matrix.map((row) => dot(row, vector));
-}
-
 function normalize(vector) {
-  const length = norm(vector);
+  const length = Math.sqrt(dot(vector, vector)) || 1;
   return vector.map((value) => value / length);
 }
 
-function covarianceMatrix(scaledRows) {
-  const n = scaledRows.length;
-  const p = scaledRows[0]?.length ?? 0;
-  const matrix = Array.from({ length: p }, () => Array.from({ length: p }, () => 0));
+function matrixVectorProduct(matrix, vector) {
+  return matrix.map((row) => dot(row, vector));
+}
 
-  for (let i = 0; i < p; i += 1) {
-    for (let j = i; j < p; j += 1) {
+function covarianceMatrix(scaledRows) {
+  const rowCount = scaledRows.length;
+  const columnCount = scaledRows[0]?.length ?? 0;
+  const matrix = Array.from({ length: columnCount }, () => Array(columnCount).fill(0));
+
+  for (let row = 0; row < columnCount; row += 1) {
+    for (let column = row; column < columnCount; column += 1) {
       let value = 0;
-      for (let r = 0; r < n; r += 1) value += scaledRows[r][i] * scaledRows[r][j];
-      value /= Math.max(1, n - 1);
-      matrix[i][j] = value;
-      matrix[j][i] = value;
+      for (const sample of scaledRows) value += sample[row] * sample[column];
+      value /= Math.max(1, rowCount - 1);
+      matrix[row][column] = value;
+      matrix[column][row] = value;
     }
   }
 
   return matrix;
 }
 
-function powerIteration(matrix, seedOffset = 0) {
+function powerIteration(matrix, offset = 0) {
   const size = matrix.length;
-  let vector = normalize(Array.from({ length: size }, (_, index) => 1 + ((index + seedOffset) % 3) * 0.17));
+  let vector = normalize(Array.from({ length: size }, (_, index) => 1 + ((index + offset) % 3) * 0.19));
 
-  for (let iteration = 0; iteration < 120; iteration += 1) {
-    const next = normalize(multiplyMatrixVector(matrix, vector));
-    const delta = Math.sqrt(next.reduce((sum, value, index) => sum + (value - vector[index]) ** 2, 0));
+  for (let iteration = 0; iteration < 140; iteration += 1) {
+    const next = normalize(matrixVectorProduct(matrix, vector));
+    const difference = Math.sqrt(next.reduce((sum, value, index) => sum + (value - vector[index]) ** 2, 0));
     vector = next;
-    if (delta < 1e-8) break;
-  }
-
-  const mv = multiplyMatrixVector(matrix, vector);
-  const eigenvalue = Math.max(0, dot(vector, mv));
-  return { eigenvalue, eigenvector: vector };
-}
-
-function deflate(matrix, eigenvalue, eigenvector) {
-  return matrix.map((row, i) => row.map((value, j) => value - eigenvalue * eigenvector[i] * eigenvector[j]));
-}
-
-function getNearestEnv(sample, envSeries, tomatoMinMs, tomatoMaxMs) {
-  if (!envSeries.length) return null;
-  if (envSeries.length === 1) return envSeries[0];
-
-  const envTimes = envSeries.map((item, index) => safeNumber(item.tSec, index));
-  const envMin = Math.min(...envTimes);
-  const envMax = Math.max(...envTimes);
-  const span = Math.max(1, tomatoMaxMs - tomatoMinMs);
-  const progress = (safeNumber(sample.timestampMs, tomatoMinMs) - tomatoMinMs) / span;
-  const target = envMin + progress * Math.max(1, envMax - envMin);
-
-  let best = envSeries[0];
-  let bestDistance = Math.abs(safeNumber(best.tSec, 0) - target);
-
-  envSeries.forEach((item, index) => {
-    const distance = Math.abs(safeNumber(item.tSec, index) - target);
-    if (distance < bestDistance) {
-      best = item;
-      bestDistance = distance;
-    }
-  });
-
-  return best;
-}
-
-export const PCA_VARIABLES = [
-  { key: "tempC", label: "Temperature", unit: "°C" },
-  { key: "humidityPct", label: "Humidity", unit: "%" },
-  { key: "pressureHpa", label: "Pressure", unit: "hPa" },
-  { key: "gasKohm", label: "Gas resistance", unit: "kΩ" },
-  { key: "x", label: "X location", unit: "m" },
-  { key: "y", label: "Y location", unit: "m" },
-  { key: "timeMin", label: "Time", unit: "min" },
-  { key: "maturityScore", label: "Maturity score", unit: "0-1" },
-  { key: "count", label: "Tomato count", unit: "count" },
-];
-
-const PCA_LABEL_GROUPS = [
-  {
-    label: "Microclimate gradient",
-    keys: ["tempC", "humidityPct", "pressureHpa", "gasKohm"],
-  },
-  {
-    label: "Spatial position gradient",
-    keys: ["x", "y"],
-  },
-  {
-    label: "Temporal gradient",
-    keys: ["timeMin"],
-  },
-  {
-    label: "Tomato maturity gradient",
-    keys: ["maturityScore", "count"],
-  },
-];
-
-function labelPrincipalComponent(loadings, componentKey) {
-  const ranked = [...loadings]
-    .map((loading) => ({
-      ...loading,
-      strength: Math.abs(loading[componentKey] ?? 0),
-    }))
-    .sort((a, b) => b.strength - a.strength);
-
-  const strongest = ranked.slice(0, 4);
-
-  const groupScores = PCA_LABEL_GROUPS.map((group) => ({
-    label: group.label,
-    score: strongest
-      .filter((item) => group.keys.includes(item.key))
-      .reduce((sum, item) => sum + item.strength, 0),
-  })).sort((a, b) => b.score - a.score);
-
-  const primary = groupScores[0];
-  const secondary = groupScores[1];
-
-  if (!primary || primary.score <= 0) {
-    return {
-      label: "Mixed PCA gradient",
-      explanation: "No single variable group dominates this component.",
-      strongest,
-    };
-  }
-
-  if (secondary && secondary.score > primary.score * 0.65) {
-    return {
-      label: `${primary.label} + ${secondary.label}`,
-      explanation: `This component is mainly influenced by ${primary.label.toLowerCase()} and ${secondary.label.toLowerCase()}.`,
-      strongest,
-    };
+    if (difference < 1e-9) break;
   }
 
   return {
-    label: primary.label,
-    explanation: `This component is mainly influenced by ${primary.label.toLowerCase()}.`,
-    strongest,
+    eigenvector: vector,
+    eigenvalue: Math.max(0, dot(vector, matrixVectorProduct(matrix, vector))),
   };
 }
 
-function interpretPrincipalComponents(loadings, componentCount) {
-  return Array.from({ length: componentCount }, (_, index) => {
-    const componentKey = `pc${index + 1}`;
+function deflate(matrix, eigenvalue, eigenvector) {
+  return matrix.map((row, rowIndex) => row.map((value, columnIndex) => value - eigenvalue * eigenvector[rowIndex] * eigenvector[columnIndex]));
+}
+
+function nearestEnvironment(sample, environmentSeries, firstTomatoTimestamp, lastTomatoTimestamp) {
+  if (!environmentSeries.length) return null;
+  if (environmentSeries.length === 1) return environmentSeries[0];
+
+  const span = Math.max(1, lastTomatoTimestamp - firstTomatoTimestamp);
+  const sampleTimestamp = finite(sample.firstTimestampMs ?? sample.timestampMs, firstTomatoTimestamp);
+  const progress = (sampleTimestamp - firstTomatoTimestamp) / span;
+  const minEnvTime = finite(environmentSeries[0]?.tSec, 0);
+  const maxEnvTime = finite(environmentSeries.at(-1)?.tSec, environmentSeries.length - 1);
+  const targetTime = minEnvTime + progress * Math.max(1, maxEnvTime - minEnvTime);
+
+  return environmentSeries.reduce((best, candidate) => {
+    const bestDelta = Math.abs(finite(best?.tSec, 0) - targetTime);
+    const candidateDelta = Math.abs(finite(candidate?.tSec, 0) - targetTime);
+    return candidateDelta < bestDelta ? candidate : best;
+  }, environmentSeries[0]);
+}
+
+export const PCA_VARIABLES = [
+  { key: "tempC", label: "Temperature", unit: "°C", group: "Microclimate gradient" },
+  { key: "humidityPct", label: "Humidity", unit: "%", group: "Microclimate gradient" },
+  { key: "pressureHpa", label: "Pressure", unit: "hPa", group: "Microclimate gradient" },
+  { key: "gasKohm", label: "Gas resistance", unit: "kΩ", group: "Microclimate gradient" },
+  { key: "x", label: "X location", unit: "m", group: "Spatial position gradient" },
+  { key: "y", label: "Y location", unit: "m", group: "Spatial position gradient" },
+  { key: "timeMin", label: "Time", unit: "min", group: "Temporal gradient" },
+  { key: "maturityScore", label: "Maturity index", unit: "0–1", group: "Tomato maturity gradient" },
+  { key: "count", label: "Observation count", unit: "count", group: "Tomato maturity gradient" },
+];
+
+function interpretComponents(loadings, componentCount) {
+  return Array.from({ length: componentCount }, (_, componentIndex) => {
+    const componentKey = `pc${componentIndex + 1}`;
+    const ranked = loadings
+      .map((loading) => ({ ...loading, strength: Math.abs(loading[componentKey] ?? 0) }))
+      .sort((a, b) => b.strength - a.strength);
+    const strengthsByGroup = new Map();
+
+    ranked.slice(0, 4).forEach((loading) => {
+      strengthsByGroup.set(loading.group, (strengthsByGroup.get(loading.group) ?? 0) + loading.strength);
+    });
+
+    const groups = [...strengthsByGroup.entries()].sort((a, b) => b[1] - a[1]);
+    const primary = groups[0]?.[0] ?? "Mixed PCA gradient";
+    const secondary = groups[1]?.[0] ?? null;
+    const label = secondary && (groups[1][1] >= groups[0][1] * 0.65) ? `${primary} + ${secondary}` : primary;
+
     return {
-      id: `PC${index + 1}`,
+      id: `PC${componentIndex + 1}`,
       componentKey,
-      ...labelPrincipalComponent(loadings, componentKey),
+      label,
+      explanation: `This component is driven most strongly by the available selected-session variables in ${label.toLowerCase()}.`,
+      strongest: ranked.slice(0, 4),
     };
   });
 }
 
-export function buildPcaDataset(envSeries, tomatoSamples) {
-  const samples = tomatoSamples.filter((sample) => Number.isFinite(sample.x) && Number.isFinite(sample.y));
+export function buildPcaDataset(environmentSeries = [], tomatoSamples = []) {
+  const samples = tomatoSamples.filter((sample) => Number.isFinite(sample?.x) && Number.isFinite(sample?.y));
   if (!samples.length) return [];
 
-  const timestamps = samples.map((sample) => safeNumber(sample.timestampMs, 0));
-  const tomatoMinMs = Math.min(...timestamps);
-  const tomatoMaxMs = Math.max(...timestamps);
+  const tomatoTimes = samples.map((sample) => finite(sample.firstTimestampMs ?? sample.timestampMs, 0));
+  const firstTomatoTimestamp = Math.min(...tomatoTimes);
+  const lastTomatoTimestamp = Math.max(...tomatoTimes);
 
   return samples.map((sample, index) => {
-    const env = getNearestEnv(sample, envSeries, tomatoMinMs, tomatoMaxMs) ?? {};
-
+    const environment = nearestEnvironment(sample, environmentSeries, firstTomatoTimestamp, lastTomatoTimestamp) ?? {};
     return {
-      id: sample.id ?? `Sample ${index + 1}`,
-      tempC: safeNumber(env.tempC, 0),
-      humidityPct: safeNumber(env.humidityPct, 0),
-      pressureHpa: safeNumber(env.pressureHpa, 0),
-      gasKohm: safeNumber(env.gasKohm, 0),
-      x: safeNumber(sample.x, 0),
-      y: safeNumber(sample.y, 0),
-      timeMin: safeNumber(sample.timestampMs, tomatoMinMs) / 60000,
-      maturityScore: safeNumber(sample.maturityScore ?? sample.continuousMaturityScore, 0),
-      count: safeNumber(sample.count, 1),
-      confidence: safeNumber(sample.confidence, 0),
-      label: sample.label ?? "Tomato cluster",
+      id: sample.id ?? `landmark-${index + 1}`,
+      label: sample.label ?? "Tomato landmark",
+      tempC: finite(environment.tempC),
+      humidityPct: finite(environment.humidityPct),
+      pressureHpa: finite(environment.pressureHpa),
+      gasKohm: finite(environment.gasKohm),
+      x: finite(sample.x),
+      y: finite(sample.y),
+      timeMin: (finite(sample.firstTimestampMs ?? sample.timestampMs, firstTomatoTimestamp) - firstTomatoTimestamp) / 60_000,
+      maturityScore: finite(sample.maturityScore),
+      count: finite(sample.observationCount ?? sample.count, 1),
+      confidence: finite(sample.confidence),
     };
   });
 }
 
-export function calculatePca(envSeries, tomatoSamples, maxComponents = 3) {
-  const rows = buildPcaDataset(envSeries, tomatoSamples);
-  const variables = PCA_VARIABLES;
+function usableVariables(rows) {
+  return PCA_VARIABLES.filter((variable) => {
+    const values = rows.map((row) => finite(row[variable.key])).filter((value) => value != null);
+    const average = mean(values);
+    return values.length >= 2 && standardDeviation(values, average) != null;
+  });
+}
+
+export function calculatePca(environmentSeries = [], tomatoSamples = [], maxComponents = 3) {
+  const rows = buildPcaDataset(environmentSeries, tomatoSamples);
+  const variables = usableVariables(rows);
 
   if (rows.length < 3) {
     return {
       ready: false,
-      reason: "Not enough samples for PCA",
+      reason: "At least three real selected-session tomato landmarks are required for PCA.",
       rows,
       variables,
       components: [],
@@ -224,38 +176,59 @@ export function calculatePca(envSeries, tomatoSamples, maxComponents = 3) {
       loadings: [],
       explainedVariance: [],
       cumulativeVariance: [],
+      componentInterpretations: [],
     };
   }
 
-  const columns = variables.map((variable) => rows.map((row) => safeNumber(row[variable.key], 0)));
-  const means = columns.map(mean);
-  const stds = columns.map(std);
+  if (variables.length < 2) {
+    return {
+      ready: false,
+      reason: "The selected session does not contain two varying numeric variables after missing sensor channels are excluded.",
+      rows,
+      variables,
+      components: [],
+      scores: [],
+      loadings: [],
+      explainedVariance: [],
+      cumulativeVariance: [],
+      componentInterpretations: [],
+    };
+  }
 
-  const scaledRows = rows.map((row) => variables.map((variable, index) => (safeNumber(row[variable.key], 0) - means[index]) / stds[index]));
+  const columns = variables.map((variable) => rows.map((row) => finite(row[variable.key])));
+  const means = columns.map((column) => mean(column));
+  const deviations = columns.map((column, index) => standardDeviation(column, means[index]) ?? 1);
+
+  // Missing values are imputed only with that variable's observed mean. A completely
+  // missing channel (for example gas resistance in these sessions) was removed above.
+  const scaledRows = rows.map((row) => variables.map((variable, index) => {
+    const value = finite(row[variable.key], means[index]);
+    return (value - means[index]) / deviations[index];
+  }));
+
   let covariance = covarianceMatrix(scaledRows);
   const totalVariance = Math.max(1e-9, covariance.reduce((sum, row, index) => sum + row[index], 0));
   const componentCount = Math.min(maxComponents, variables.length, rows.length - 1);
   const components = [];
 
   for (let index = 0; index < componentCount; index += 1) {
-    const result = powerIteration(covariance, index);
+    const component = powerIteration(covariance, index);
     components.push({
       id: `PC${index + 1}`,
-      eigenvalue: result.eigenvalue,
-      eigenvector: result.eigenvector,
-      explainedRatio: result.eigenvalue / totalVariance,
+      ...component,
+      explainedRatio: component.eigenvalue / totalVariance,
     });
-    covariance = deflate(covariance, result.eigenvalue, result.eigenvector);
+    covariance = deflate(covariance, component.eigenvalue, component.eigenvector);
   }
 
-  const scores = scaledRows.map((row, rowIndex) => {
+  const scores = scaledRows.map((row, index) => {
     const values = components.map((component) => dot(row, component.eigenvector));
     return {
-      id: rows[rowIndex].id,
-      label: rows[rowIndex].label,
-      maturityScore: rows[rowIndex].maturityScore,
-      x: rows[rowIndex].x,
-      y: rows[rowIndex].y,
+      id: rows[index].id,
+      label: rows[index].label,
+      maturityScore: rows[index].maturityScore,
+      x: rows[index].x,
+      y: rows[index].y,
       pc1: values[0] ?? 0,
       pc2: values[1] ?? 0,
       pc3: values[2] ?? 0,
@@ -263,21 +236,19 @@ export function calculatePca(envSeries, tomatoSamples, maxComponents = 3) {
   });
 
   const loadings = variables.map((variable, variableIndex) => {
-    const item = { key: variable.key, label: variable.label, unit: variable.unit };
+    const loading = { ...variable };
     components.forEach((component, componentIndex) => {
-      item[`pc${componentIndex + 1}`] = component.eigenvector[variableIndex] * Math.sqrt(component.eigenvalue);
+      loading[`pc${componentIndex + 1}`] = component.eigenvector[variableIndex] * Math.sqrt(component.eigenvalue);
     });
-    return item;
+    return loading;
   });
 
- const explainedVariance = components.map((component) => component.explainedRatio);
-  let running = 0;
+  const explainedVariance = components.map((component) => component.explainedRatio);
+  let cumulative = 0;
   const cumulativeVariance = explainedVariance.map((value) => {
-    running += value;
-    return running;
+    cumulative += value;
+    return cumulative;
   });
-
-  const componentInterpretations = interpretPrincipalComponents(loadings, components.length);
 
   return {
     ready: true,
@@ -287,13 +258,13 @@ export function calculatePca(envSeries, tomatoSamples, maxComponents = 3) {
     components,
     scores,
     loadings,
-    componentInterpretations,
     explainedVariance,
     cumulativeVariance,
+    componentInterpretations: interpretComponents(loadings, components.length),
   };
 }
 
-export function strongestLoadings(loadings, componentKey = "pc1", limit = 3) {
+export function strongestLoadings(loadings = [], componentKey = "pc1", limit = 3) {
   return [...loadings]
     .sort((a, b) => Math.abs(b[componentKey] ?? 0) - Math.abs(a[componentKey] ?? 0))
     .slice(0, limit);
