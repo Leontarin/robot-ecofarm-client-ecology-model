@@ -20,6 +20,28 @@ function formatNumber(value, digits = 2) {
   return Number.isFinite(num) ? num.toFixed(digits) : "—";
 }
 
+function clamp(value, min, max) {
+  return Math.min(max, Math.max(min, value));
+}
+
+function readMapHeaderCollapsed() {
+  if (typeof window === "undefined") return true;
+  try {
+    return window.localStorage.getItem("rbv2-dashboard-map-header-collapsed") !== "false";
+  } catch {
+    return true;
+  }
+}
+
+function writeMapHeaderCollapsed(value) {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem("rbv2-dashboard-map-header-collapsed", value ? "true" : "false");
+  } catch {
+    // localStorage can be unavailable; the map should still work.
+  }
+}
+
 function detectionColor(category, weak) {
   if (weak) return "rgba(245, 158, 11, 0.92)";
   switch (category) {
@@ -51,12 +73,18 @@ export default function MapPanel({
   filters,
   selectedDetectionId,
   onSelectDetection,
+  detectionsOverride = null,
+  reviewFocusDetection = null,
   height = 650,
 }) {
   const canvasRef = useRef(null);
   const wrapperRef = useRef(null);
+  const dragRef = useRef({ active: false, x: 0, y: 0, moved: false });
   const [canvasSize, setCanvasSize] = useState({ width: 900, height });
   const [screenDetections, setScreenDetections] = useState([]);
+  const [zoom, setZoom] = useState(1);
+  const [pan, setPan] = useState({ x: 0, y: 0 });
+  const [mapHeaderCollapsed, setMapHeaderCollapsed] = useState(() => readMapHeaderCollapsed());
 
   const isRosMap = map?.kind === "rbv2_ros2_slam_dashboard";
   const resolution = Number(map?.map?.resolutionM) || 0.05;
@@ -81,10 +109,23 @@ export default function MapPanel({
 
   const visibleDetections = useMemo(() => {
     if (!isRosMap) return [];
-    const filtered = createPreparedDetections(map?.detections, filters);
+    const filtered = Array.isArray(detectionsOverride)
+      ? detectionsOverride
+      : createPreparedDetections(map?.detections, filters);
     if (!Number.isFinite(currentTimeMs)) return filtered;
     return filtered.filter((detection) => detection.timestampMs <= currentTimeMs);
-  }, [isRosMap, map, filters, currentTimeMs]);
+  }, [isRosMap, map, filters, currentTimeMs, detectionsOverride]);
+
+  const focusDetection = useMemo(() => {
+    if (!reviewFocusDetection?.projection) return null;
+    if (Number.isFinite(currentTimeMs) && reviewFocusDetection.timestampMs > currentTimeMs) return null;
+    return reviewFocusDetection;
+  }, [reviewFocusDetection, currentTimeMs]);
+
+  useEffect(() => {
+    setZoom(1);
+    setPan({ x: 0, y: 0 });
+  }, [map?.session?.id]);
 
   useEffect(() => {
     if (!wrapperRef.current) return;
@@ -98,6 +139,23 @@ export default function MapPanel({
     return () => observer.disconnect();
   }, [height]);
 
+  function getViewMetrics(nextZoom = zoom, nextPan = pan) {
+    const cssWidth = canvasSize.width;
+    const cssHeight = canvasSize.height;
+    const padding = 26;
+    const fitScale = Math.min(
+      (cssWidth - padding * 2) / mapWidthPx,
+      (cssHeight - padding * 2) / mapHeightPx,
+    );
+    const scale = fitScale * nextZoom;
+    const drawWidth = mapWidthPx * scale;
+    const drawHeight = mapHeightPx * scale;
+    const offsetX = (cssWidth - drawWidth) / 2 + nextPan.x;
+    const offsetY = (cssHeight - drawHeight) / 2 + nextPan.y;
+
+    return { cssWidth, cssHeight, fitScale, scale, drawWidth, drawHeight, offsetX, offsetY };
+  }
+
   useEffect(() => {
     if (!isRosMap) return;
     const canvas = canvasRef.current;
@@ -105,8 +163,8 @@ export default function MapPanel({
 
     const ctx = canvas.getContext("2d");
     const dpr = window.devicePixelRatio || 1;
-    const cssWidth = canvasSize.width;
-    const cssHeight = canvasSize.height;
+    const { cssWidth, cssHeight, scale, drawWidth, drawHeight, offsetX, offsetY } = getViewMetrics();
+
     canvas.width = Math.floor(cssWidth * dpr);
     canvas.height = Math.floor(cssHeight * dpr);
     canvas.style.width = `${cssWidth}px`;
@@ -117,20 +175,15 @@ export default function MapPanel({
     ctx.fillStyle = "rgba(2, 6, 23, 0.92)";
     ctx.fillRect(0, 0, cssWidth, cssHeight);
 
-    const padding = 26;
-    const scale = Math.min(
-      (cssWidth - padding * 2) / mapWidthPx,
-      (cssHeight - padding * 2) / mapHeightPx,
-    );
-    const drawWidth = mapWidthPx * scale;
-    const drawHeight = mapHeightPx * scale;
-    const offsetX = (cssWidth - drawWidth) / 2;
-    const offsetY = (cssHeight - drawHeight) / 2;
-
     const toScreenMeters = (x, y) => ({
       sx: offsetX + (x / resolution) * scale,
       sy: offsetY + (y / resolution) * scale,
     });
+
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(offsetX, offsetY, drawWidth, drawHeight);
+    ctx.clip();
 
     const bytes = decodeBase64Bytes(map?.map?.image?.data);
     if (bytes?.length === mapWidthPx * mapHeightPx) {
@@ -156,7 +209,7 @@ export default function MapPanel({
     }
 
     ctx.strokeStyle = "rgba(15, 23, 42, 0.28)";
-    ctx.lineWidth = 1;
+    ctx.lineWidth = Math.max(0.8, Math.min(1.5, zoom));
     const gridStepMeters = 0.5;
     for (let x = 0; x <= mapWidthM; x += gridStepMeters) {
       const screen = toScreenMeters(x, 0);
@@ -188,7 +241,7 @@ export default function MapPanel({
 
     if (trailUntilNow.length >= 2) {
       ctx.strokeStyle = "rgba(168, 85, 247, 0.92)";
-      ctx.lineWidth = 3;
+      ctx.lineWidth = Math.max(2.2, Math.min(4.5, 3 * Math.sqrt(zoom)));
       ctx.lineJoin = "round";
       ctx.lineCap = "round";
       ctx.beginPath();
@@ -223,9 +276,30 @@ export default function MapPanel({
         ctx.stroke();
       }
 
-      preparedScreenDetections.push({ ...detection, sx: screen.sx, sy: screen.sy, radius: radius + 7 });
+      preparedScreenDetections.push({ ...detection, sx: screen.sx, sy: screen.sy, radius: radius + 9 });
     }
     setScreenDetections(preparedScreenDetections);
+
+    if (focusDetection?.projection) {
+      const focus = toScreenMeters(focusDetection.projection.x, focusDetection.projection.y);
+      ctx.fillStyle = "rgba(168, 85, 247, 0.95)";
+      ctx.strokeStyle = "rgba(255, 255, 255, 0.95)";
+      ctx.lineWidth = 2.5;
+      ctx.beginPath();
+      ctx.arc(focus.sx, focus.sy, 8.5, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+
+      ctx.strokeStyle = "rgba(216, 180, 254, 0.95)";
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(focus.sx, focus.sy, 16, 0, Math.PI * 2);
+      ctx.stroke();
+
+      ctx.fillStyle = "rgba(216, 180, 254, 0.95)";
+      ctx.font = "700 12px Arial";
+      ctx.fillText("REVIEW", focus.sx + 14, focus.sy - 10);
+    }
 
     if (finalPose) {
       const robot = toScreenMeters(finalPose.x, finalPose.y);
@@ -271,6 +345,7 @@ export default function MapPanel({
     ctx.strokeStyle = "rgba(148, 163, 184, 0.25)";
     ctx.lineWidth = 1;
     ctx.strokeRect(offsetX, offsetY, drawWidth, drawHeight);
+    ctx.restore();
   }, [
     isRosMap,
     map,
@@ -284,10 +359,63 @@ export default function MapPanel({
     trailUntilNow,
     visibleDetections,
     selectedDetectionId,
+    focusDetection,
     finalPose,
+    zoom,
+    pan,
   ]);
 
+  function zoomAt(canvasX, canvasY, nextZoom) {
+    const boundedZoom = clamp(nextZoom, 1, 5);
+    const oldMetrics = getViewMetrics(zoom, pan);
+    const mapPxX = (canvasX - oldMetrics.offsetX) / oldMetrics.scale;
+    const mapPxY = (canvasY - oldMetrics.offsetY) / oldMetrics.scale;
+    const newDrawWidth = mapWidthPx * oldMetrics.fitScale * boundedZoom;
+    const newDrawHeight = mapHeightPx * oldMetrics.fitScale * boundedZoom;
+    const baseOffsetX = (oldMetrics.cssWidth - newDrawWidth) / 2;
+    const baseOffsetY = (oldMetrics.cssHeight - newDrawHeight) / 2;
+    const nextPan = {
+      x: canvasX - mapPxX * oldMetrics.fitScale * boundedZoom - baseOffsetX,
+      y: canvasY - mapPxY * oldMetrics.fitScale * boundedZoom - baseOffsetY,
+    };
+    setZoom(boundedZoom);
+    setPan(nextPan);
+  }
+
+  function changeZoom(multiplier) {
+    zoomAt(canvasSize.width / 2, canvasSize.height / 2, zoom * multiplier);
+  }
+
+  function resetView() {
+    setZoom(1);
+    setPan({ x: 0, y: 0 });
+  }
+
+  function handleMouseDown(event) {
+    dragRef.current = {
+      active: true,
+      x: event.clientX,
+      y: event.clientY,
+      moved: false,
+    };
+  }
+
+  function handleMouseUp() {
+    dragRef.current.active = false;
+  }
+
+  function handleMouseLeave() {
+    dragRef.current.active = false;
+    const canvas = canvasRef.current;
+    if (canvas) canvas.style.cursor = "grab";
+  }
+
   function handleCanvasClick(event) {
+    if (dragRef.current.moved) {
+      dragRef.current.moved = false;
+      return;
+    }
+
     if (!onSelectDetection || !screenDetections.length) return;
     const canvas = canvasRef.current;
     const rect = canvas.getBoundingClientRect();
@@ -310,13 +438,33 @@ export default function MapPanel({
   function handleMouseMove(event) {
     const canvas = canvasRef.current;
     if (!canvas) return;
+
+    if (dragRef.current.active) {
+      const dx = event.clientX - dragRef.current.x;
+      const dy = event.clientY - dragRef.current.y;
+      if (Math.abs(dx) + Math.abs(dy) > 2) dragRef.current.moved = true;
+      dragRef.current.x = event.clientX;
+      dragRef.current.y = event.clientY;
+      setPan((current) => ({ x: current.x + dx, y: current.y + dy }));
+      canvas.style.cursor = "grabbing";
+      return;
+    }
+
     const rect = canvas.getBoundingClientRect();
     const x = event.clientX - rect.left;
     const y = event.clientY - rect.top;
     const onPoint = screenDetections.some(
       (detection) => Math.hypot(detection.sx - x, detection.sy - y) <= detection.radius,
     );
-    canvas.style.cursor = onPoint ? "pointer" : "default";
+    canvas.style.cursor = onPoint ? "pointer" : zoom > 1 ? "grab" : "default";
+  }
+
+  function toggleMapHeader() {
+    setMapHeaderCollapsed((current) => {
+      const next = !current;
+      writeMapHeaderCollapsed(next);
+      return next;
+    });
   }
 
   if (!map) {
@@ -337,23 +485,69 @@ export default function MapPanel({
 
   return (
     <section className="overflow-hidden rounded-[2rem] border border-slate-800 bg-slate-950/70 shadow-[0_24px_80px_rgba(2,6,23,0.35)]">
-      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-800/90 px-5 py-4">
-        <div>
-          <div className="text-[11px] font-semibold uppercase tracking-[0.28em] text-cyan-300">
-            Scan Map
+      {mapHeaderCollapsed ? (
+        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800/70 px-4 py-2">
+          <div className="flex min-w-0 flex-wrap items-center gap-2 text-[11px] text-slate-400">
+            <span className="font-semibold uppercase tracking-[0.24em] text-cyan-300">Scan map</span>
+            <span className="rounded-full border border-slate-700 bg-slate-900/70 px-2.5 py-1 text-slate-300">
+              Trail {trailUntilNow.length}/{map.trail?.length ?? 0}
+            </span>
+            <span className="rounded-full border border-slate-700 bg-slate-900/70 px-2.5 py-1 text-slate-300">
+              Pending {visibleDetections.length}
+            </span>
+            <span className="rounded-full border border-slate-700 bg-slate-900/70 px-2.5 py-1 text-slate-300">
+              {formatNumber(finalPose?.distanceM ?? 0)} m
+            </span>
           </div>
-          <h2 className="mt-1 text-xl font-semibold text-white">ROS2 SLAM map overlay</h2>
+          <button
+            type="button"
+            onClick={toggleMapHeader}
+            className="rounded-full border border-cyan-400/30 bg-cyan-400/10 px-3 py-1 text-[10px] font-bold uppercase tracking-[0.12em] text-cyan-100 transition hover:bg-cyan-400/15"
+            title="Open map information header"
+          >
+            Map info
+          </button>
         </div>
-        <div className="flex flex-wrap gap-2 text-xs text-slate-300">
-          <span className="rounded-full border border-slate-700 bg-slate-900/80 px-3 py-1">
-            Trail {trailUntilNow.length}/{map.trail?.length ?? 0}
-          </span>
-          <span className="rounded-full border border-slate-700 bg-slate-900/80 px-3 py-1">
-            Visible detections {visibleDetections.length}
-          </span>
-          <span className="rounded-full border border-slate-700 bg-slate-900/80 px-3 py-1">
-            Distance {formatNumber(finalPose?.distanceM ?? 0)} m
-          </span>
+      ) : (
+        <div className="flex flex-wrap items-start justify-between gap-3 border-b border-slate-800/90 px-5 py-4">
+          <div>
+            <div className="text-[11px] font-semibold uppercase tracking-[0.28em] text-cyan-300">
+              Scan Map
+            </div>
+            <h2 className="mt-1 text-xl font-semibold text-white">ROS2 SLAM map overlay</h2>
+            <p className="mt-1 text-xs text-slate-500">Use Zoom buttons · drag to move · click tomato marker to mark it checked</p>
+          </div>
+          <div className="flex flex-wrap items-center justify-end gap-2 text-xs text-slate-300">
+            <span className="rounded-full border border-slate-700 bg-slate-900/80 px-3 py-1">
+              Trail {trailUntilNow.length}/{map.trail?.length ?? 0}
+            </span>
+            <span className="rounded-full border border-slate-700 bg-slate-900/80 px-3 py-1">
+              Pending map points {visibleDetections.length}
+            </span>
+            <span className="rounded-full border border-slate-700 bg-slate-900/80 px-3 py-1">
+              Distance {formatNumber(finalPose?.distanceM ?? 0)} m
+            </span>
+            <button
+              type="button"
+              onClick={toggleMapHeader}
+              className="flex h-5 w-5 items-center justify-center rounded-full border border-red-200/70 bg-red-600 text-[13px] font-black leading-none text-white shadow-[0_0_16px_rgba(220,38,38,0.35)] transition hover:scale-105 hover:bg-red-500"
+              aria-label="Collapse map information header"
+              title="Minimize map information header"
+            >
+              −
+            </button>
+          </div>
+        </div>
+      )}
+
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800/60 px-5 py-3 text-xs text-slate-400">
+        <div className="flex items-center gap-2">
+          <button type="button" onClick={() => changeZoom(1.2)} className="rounded-xl border border-slate-700 bg-slate-900 px-3 py-1.5 font-semibold text-slate-200 hover:bg-slate-800">Zoom +</button>
+          <button type="button" onClick={() => changeZoom(1 / 1.2)} className="rounded-xl border border-slate-700 bg-slate-900 px-3 py-1.5 font-semibold text-slate-200 hover:bg-slate-800">Zoom -</button>
+          <button type="button" onClick={resetView} className="rounded-xl border border-slate-700 bg-slate-900 px-3 py-1.5 font-semibold text-slate-200 hover:bg-slate-800">Reset</button>
+        </div>
+        <div className="rounded-full border border-cyan-400/20 bg-cyan-400/10 px-3 py-1 text-cyan-100">
+          Zoom {Math.round(zoom * 100)}%
         </div>
       </div>
 
@@ -361,13 +555,16 @@ export default function MapPanel({
         <canvas
           ref={canvasRef}
           onClick={handleCanvasClick}
+          onMouseDown={handleMouseDown}
+          onMouseUp={handleMouseUp}
+          onMouseLeave={handleMouseLeave}
           onMouseMove={handleMouseMove}
-          className="block w-full rounded-3xl border border-slate-800 bg-slate-950"
+          className="block w-full select-none rounded-3xl border border-slate-800 bg-slate-950"
           aria-label="Robot scan map with route and tomato detections"
         />
       </div>
 
-      <div className="grid gap-3 border-t border-slate-800/90 px-5 py-4 text-xs text-slate-400 md:grid-cols-4">
+      <div className="grid gap-3 border-t border-slate-800/90 px-5 py-4 text-xs text-slate-400 md:grid-cols-5">
         <div className="flex items-center gap-2">
           <span className="h-3 w-3 rounded-full bg-purple-400" /> Robot route
         </div>
@@ -379,6 +576,9 @@ export default function MapPanel({
         </div>
         <div className="flex items-center gap-2">
           <span className="h-3 w-3 rounded-full bg-cyan-400" /> Current robot position
+        </div>
+        <div className="flex items-center gap-2">
+          <span className="h-3 w-3 rounded-full bg-purple-400" /> Selected checklist point
         </div>
       </div>
     </section>

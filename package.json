@@ -3,10 +3,11 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev",
-    "build": "next build",
+    "dev": "npm run prepare-dashboard-media && next dev",
+    "build": "npm run prepare-dashboard-media && next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "prepare-dashboard-media": "node scripts/prepare-dashboard-media.mjs"
   },
   "dependencies": {
     "next": "16.1.6",
@@ -17,6 +18,7 @@
     "@tailwindcss/postcss": "^4",
     "eslint": "^9",
     "eslint-config-next": "16.1.6",
-    "tailwindcss": "^4"
+    "tailwindcss": "^4",
+    "ffmpeg-static": "^5.2.0"
   }
 }

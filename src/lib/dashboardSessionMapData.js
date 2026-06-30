@@ -3,6 +3,7 @@ import { existsSync } from "node:fs";
 import { promises as fs } from "node:fs";
 
 const DEFAULT_SESSION_ROOT = path.join(process.cwd(), "src", "session-data");
+const DEFAULT_PUBLIC_MEDIA_ROOT = path.join(process.cwd(), "public", "session-media");
 const MAX_DETECTION_MARKERS = 5000;
 const MAX_TRAIL_POINTS = 10000;
 
@@ -62,6 +63,38 @@ function sessionAssetUrl(sessionId, relativePath) {
   const rel = normalizeRelPath(relativePath);
   if (!sessionId || !rel) return null;
   return `/api/session-file?session=${encodeURIComponent(sessionId)}&path=${encodeURIComponent(rel)}`;
+}
+
+function browserVideoFileName(relativePath) {
+  const normalized = normalizeRelPath(relativePath);
+  if (!normalized) return "";
+  const ext = path.extname(normalized).toLowerCase();
+  const base = path.basename(normalized, ext);
+  const lowerBase = base.toLowerCase();
+
+  if (ext === ".webm" || lowerBase.includes("browser") || lowerBase.includes("h264")) {
+    return path.basename(normalized);
+  }
+
+  return `${base}_browser.mp4`;
+}
+
+function publicSessionVideoRelPath(sessionId, relativePath) {
+  const fileName = browserVideoFileName(relativePath);
+  if (!sessionId || !fileName) return "";
+  return normalizeRelPath(path.join(sessionId, "videos", fileName));
+}
+
+function publicSessionVideoUrl(sessionId, relativePath) {
+  const rel = publicSessionVideoRelPath(sessionId, relativePath);
+  if (!rel) return null;
+  return `/session-media/${rel}`;
+}
+
+async function publicSessionVideoExists(sessionId, relativePath) {
+  const rel = publicSessionVideoRelPath(sessionId, relativePath);
+  if (!rel) return false;
+  return fileExists(path.join(DEFAULT_PUBLIC_MEDIA_ROOT, rel));
 }
 
 async function pathIsDir(dirPath) {
@@ -282,10 +315,13 @@ async function buildSessionListItem(sessionDir, entryName) {
   const posePath = path.join(sessionDir, "map_pose_timeline.jsonl");
   const detectionsPath = path.join(sessionDir, "detections_on_map.jsonl");
 
-  const [summaryStat, summary, manifest] = await Promise.all([
+  const [sessionStat, summaryStat, summary, manifest, hasPoseTimeline, hasDetections] = await Promise.all([
+    fs.stat(sessionDir).catch(() => null),
     fs.stat(summaryPath).catch(() => null),
     fileExists(summaryPath).then((ok) => (ok ? readJson(summaryPath).catch(() => null) : null)),
     fileExists(manifestPath).then((ok) => (ok ? readJson(manifestPath).catch(() => null) : null)),
+    fileExists(posePath),
+    fileExists(detectionsPath),
   ]);
 
   const label = manifest?.started_at_local || summary?.session_id || sessionDateFromId(entryName) || entryName;
@@ -297,10 +333,10 @@ async function buildSessionListItem(sessionDir, entryName) {
     label,
     startedAt,
     stoppedAt,
-    updatedAtMs: summaryStat?.mtimeMs ?? 0,
+    updatedAtMs: summaryStat?.mtimeMs ?? sessionStat?.mtimeMs ?? 0,
     mapAvailable: Boolean(summary?.map?.valid ?? summary?.map?.loaded),
-    hasPoseTimeline: await fileExists(posePath),
-    hasDetections: await fileExists(detectionsPath),
+    hasPoseTimeline,
+    hasDetections,
     counts: {
       poseRows: safeNumber(summary?.counts?.map_pose_rows ?? manifest?.counts?.map_pose_rows, 0),
       detectionEvents: safeNumber(
@@ -325,9 +361,6 @@ export async function listDashboardSessions() {
   const items = [];
   for (const entryName of sessionDirs) {
     const sessionDir = path.join(root, entryName);
-    const summaryPath = path.join(sessionDir, "map_overlay_summary.json");
-    const posePath = path.join(sessionDir, "map_pose_timeline.jsonl");
-    if (!(await fileExists(summaryPath)) || !(await fileExists(posePath))) continue;
     items.push(await buildSessionListItem(sessionDir, entryName));
   }
 
@@ -435,12 +468,313 @@ function normalizeProjectionMethod(method) {
   return raw.replaceAll("_", " ");
 }
 
-function normalizeDetectionEvent(row, eventIndex, sessionId) {
+
+
+function evidenceKeyFromRow(row) {
+  const timestampMs = safeNumber(row?.timestamp_ms ?? row?.timestampMs);
+  const rawImagePath = normalizeRelPath(row?.raw_image_path || row?.rawImagePath || row?.image_path || row?.imagePath || row?.annotated_image_path);
+  return `${timestampMs}|${rawImagePath}`;
+}
+
+function normalizeBbox(bbox) {
+  const x = safeNumber(bbox?.x, NaN);
+  const y = safeNumber(bbox?.y, NaN);
+  const w = safeNumber(bbox?.w, NaN);
+  const h = safeNumber(bbox?.h, NaN);
+  const valid = Boolean(bbox?.valid ?? true) && Number.isFinite(x) && Number.isFinite(y) && Number.isFinite(w) && Number.isFinite(h) && w > 0 && h > 0;
+  return { valid, x: valid ? x : 0, y: valid ? y : 0, w: valid ? w : 0, h: valid ? h : 0 };
+}
+
+function boxCenter(bbox) {
+  const box = normalizeBbox(bbox);
+  if (!box.valid) return null;
+  return { x: box.x + box.w / 2, y: box.y + box.h / 2 };
+}
+
+function pointInsideBox(point, bbox) {
+  const box = normalizeBbox(bbox);
+  if (!box.valid || !point) return false;
+  return point.x >= box.x && point.x <= box.x + box.w && point.y >= box.y && point.y <= box.y + box.h;
+}
+
+function boxIntersectionRatio(inner, outer) {
+  const a = normalizeBbox(inner);
+  const b = normalizeBbox(outer);
+  if (!a.valid || !b.valid) return 0;
+  const x1 = Math.max(a.x, b.x);
+  const y1 = Math.max(a.y, b.y);
+  const x2 = Math.min(a.x + a.w, b.x + b.w);
+  const y2 = Math.min(a.y + a.h, b.y + b.h);
+  const area = Math.max(0, x2 - x1) * Math.max(0, y2 - y1);
+  return area / Math.max(1, a.w * a.h);
+}
+
+function normalizeCandidate(candidate, index, source, key) {
+  const label = safeString(candidate?.label, "unknown");
+  const classId = safeNumber(candidate?.class_id, -1);
+  const category = normalizeTomatoCategory(label, classId);
+  const confidence = safeNumber(candidate?.confidence, null);
+  const weak = Boolean(candidate?.weak);
+  const bbox = normalizeBbox(candidate?.bbox);
+  const originalBbox = normalizeBbox(candidate?.original_bbox);
+  const refinedBbox = normalizeBbox(candidate?.refined_bbox);
+
+  return {
+    id: `${key}:${source}:${index}`,
+    source,
+    sourceLabel: source === "raw" ? "Raw candidate" : "Final decision",
+    index,
+    label,
+    classId,
+    category,
+    categoryLabel: categoryLabel(category),
+    confidence,
+    confidencePct: confidence == null ? null : Math.round(confidence * 100),
+    currentConfidence: safeNumber(candidate?.current_confidence, null),
+    bestConfidence: safeNumber(candidate?.best_confidence, null),
+    valid: Boolean(candidate?.valid ?? true),
+    weak,
+    quality: weak ? "weak" : "strong",
+    accepted: source === "final" && !weak && Boolean(candidate?.valid ?? true) && !candidate?.display_suppressed,
+    displaySuppressed: Boolean(candidate?.display_suppressed),
+    rejectReason: safeString(candidate?.reject_reason),
+    bbox,
+    originalBbox,
+    refinedBbox,
+    trackId: safeNumber(candidate?.track_id, -1),
+    trackHits: safeNumber(candidate?.track_hits, 0),
+    trackAge: safeNumber(candidate?.track_age, 0),
+    trackStableBest: Boolean(candidate?.track_stable_best),
+    clusterPromoted: Boolean(candidate?.cluster_promoted),
+    classCorrected: Boolean(candidate?.class_corrected),
+    originalClassId: safeNumber(candidate?.original_class_id, -1),
+    originalLabel: safeString(candidate?.original_label),
+    displaySource: safeString(candidate?.display_source),
+    promotionReason: safeString(candidate?.promotion_reason),
+    maturity: {
+      competitionWinner: Boolean(candidate?.maturity_competition_winner),
+      lostCompetition: Boolean(candidate?.lost_maturity_competition),
+      classLocked: Boolean(candidate?.class_locked),
+      switchCandidateFrames: safeNumber(candidate?.switch_candidate_frames, 0),
+      score: safeNumber(candidate?.maturity_score, null),
+      ripeScore: safeNumber(candidate?.maturity_score_ripe, null),
+      unripeScore: safeNumber(candidate?.maturity_score_unripe, null),
+      reason: safeString(candidate?.maturity_competition_reason),
+    },
+    roi: {
+      pass: Boolean(candidate?.roi_pass),
+      groupSize: safeNumber(candidate?.roi_group_size, 0),
+      reason: safeString(candidate?.roi_reason),
+      sourceAcceptedCount: safeNumber(candidate?.roi_source_accepted_count, 0),
+      sourceWeakCount: safeNumber(candidate?.roi_source_weak_count, 0),
+      paddingRatio: safeNumber(candidate?.roi_padding_ratio, 0),
+    },
+    support: {
+      memberCount: safeNumber(candidate?.support?.member_count, 0),
+      ripeCount: safeNumber(candidate?.support?.ripe_count, 0),
+      unripeCount: safeNumber(candidate?.support?.unripe_count, 0),
+      confSum: safeNumber(candidate?.support?.conf_sum, null),
+      ripeConfSum: safeNumber(candidate?.support?.ripe_conf_sum, null),
+      unripeConfSum: safeNumber(candidate?.support?.unripe_conf_sum, null),
+      score: safeNumber(candidate?.support?.score, null),
+    },
+    metrics: {
+      boxArea: safeNumber(candidate?.metrics?.box_area, null),
+      maskArea: safeNumber(candidate?.metrics?.mask_area, null),
+      maskDensity: safeNumber(candidate?.metrics?.mask_density, null),
+      redRatio: safeNumber(candidate?.metrics?.red_ratio, null),
+      orangeRatio: safeNumber(candidate?.metrics?.orange_ratio, null),
+      warmRatio: safeNumber(candidate?.metrics?.warm_ratio, null),
+      greenYellowRatio: safeNumber(candidate?.metrics?.green_yellow_ratio, null),
+    },
+  };
+}
+
+function summarizeCandidates(candidates) {
+  const rows = Array.isArray(candidates) ? candidates : [];
+  return {
+    total: rows.length,
+    strong: rows.filter((item) => !item.weak).length,
+    weak: rows.filter((item) => item.weak).length,
+    accepted: rows.filter((item) => item.accepted).length,
+    ripeTomatoes: rows.filter((item) => item.category === "ripe_tomato").length,
+    unripeTomatoes: rows.filter((item) => item.category === "unripe_tomato").length,
+    ripeBunches: rows.filter((item) => item.category === "ripe_bunch").length,
+    unripeBunches: rows.filter((item) => item.category === "unripe_bunch").length,
+    roiPass: rows.filter((item) => item.roi?.pass).length,
+    rejectedOrSuppressed: rows.filter((item) => item.rejectReason || item.displaySuppressed).length,
+  };
+}
+
+function isClusterCandidate(candidate) {
+  return candidate?.category === "ripe_bunch" || candidate?.category === "unripe_bunch" || safeString(candidate?.label).toLowerCase().includes("bunch");
+}
+
+function isSingleTomatoCandidate(candidate) {
+  return candidate?.category === "ripe_tomato" || candidate?.category === "unripe_tomato";
+}
+
+function buildRoiInsights(finalCandidates, rawCandidates, key) {
+  const source = finalCandidates.length ? finalCandidates : rawCandidates;
+  const clusters = source.filter((item) => isClusterCandidate(item) && item.bbox?.valid);
+  const tomatoes = source.filter((item) => isSingleTomatoCandidate(item) && item.bbox?.valid);
+
+  return clusters.map((cluster, index) => {
+    const children = tomatoes.filter((tomato) => {
+      if (tomato.id === cluster.id) return false;
+      const center = boxCenter(tomato.bbox);
+      return pointInsideBox(center, cluster.bbox) || boxIntersectionRatio(tomato.bbox, cluster.bbox) >= 0.15;
+    });
+
+    const ripeScore = children
+      .filter((item) => item.category === "ripe_tomato")
+      .reduce((sum, item) => sum + safeNumber(item.confidence, 0), 0);
+    const unripeScore = children
+      .filter((item) => item.category === "unripe_tomato")
+      .reduce((sum, item) => sum + safeNumber(item.confidence, 0), 0);
+    const strongCount = children.filter((item) => !item.weak).length;
+    const weakCount = children.filter((item) => item.weak).length;
+    const totalScore = ripeScore + unripeScore;
+    const ripePct = totalScore > 0 ? Math.round((ripeScore / totalScore) * 100) : null;
+    const unripePct = totalScore > 0 ? Math.round((unripeScore / totalScore) * 100) : null;
+    const hasMixedMaturity = ripeScore > 0 && unripeScore > 0;
+    const clusterLooksRipe = cluster.category === "ripe_bunch";
+    const conflict =
+      (clusterLooksRipe && unripeScore > ripeScore * 1.1) ||
+      (!clusterLooksRipe && ripeScore > unripeScore * 1.1) ||
+      (hasMixedMaturity && Math.min(ripeScore, unripeScore) / Math.max(ripeScore, unripeScore) > 0.45);
+
+    let decision = "Uncertain";
+    if (totalScore > 0) {
+      if (Math.abs(ripeScore - unripeScore) / totalScore < 0.25) decision = "Mixed maturity";
+      else decision = ripeScore > unripeScore ? "Mostly ripe" : "Mostly unripe";
+    } else if (cluster.category === "ripe_bunch") {
+      decision = "Cluster predicted ripe";
+    } else if (cluster.category === "unripe_bunch") {
+      decision = "Cluster predicted unripe";
+    }
+
+    return {
+      id: `${key}:roi:${index}`,
+      clusterBoxId: cluster.id,
+      clusterLabel: cluster.categoryLabel,
+      clusterConfidencePct: cluster.confidencePct,
+      decision,
+      conflict,
+      hasMixedMaturity,
+      childCount: children.length,
+      strongCount,
+      weakCount,
+      ripeScore,
+      unripeScore,
+      ripePct,
+      unripePct,
+      childBoxIds: children.map((item) => item.id),
+      note: conflict
+        ? "Cluster label and inner tomato evidence are not fully aligned. Recommended for model review."
+        : children.length
+          ? "ROI estimate is based on child tomato detections inside the cluster box."
+          : "No child tomato detections were found inside this cluster ROI.",
+    };
+  });
+}
+
+function buildReviewTags(finalCandidates, rawCandidates, roiInsights) {
+  const tags = [];
+  if (finalCandidates.some((item) => item.weak)) tags.push("weak detections");
+  if (rawCandidates.length > finalCandidates.length) tags.push("raw candidates available");
+  if (finalCandidates.some((item) => item.roi?.pass) || rawCandidates.some((item) => item.roi?.pass)) tags.push("ROI pass");
+  if (roiInsights.some((item) => item.conflict)) tags.push("ROI conflict");
+  if (roiInsights.some((item) => item.hasMixedMaturity)) tags.push("mixed maturity");
+  if (finalCandidates.some((item) => item.rejectReason) || rawCandidates.some((item) => item.rejectReason)) tags.push("has rejection reasons");
+  return tags;
+}
+
+function buildDetectionEvidence(row, rawRow, eventIndex, sessionId) {
+  const key = evidenceKeyFromRow(row ?? rawRow);
+  const imagePath = normalizeRelPath(row?.image_path || row?.annotated_image_path);
+  const annotatedImagePath = normalizeRelPath(row?.annotated_image_path || row?.image_path);
+  const rawImagePath = normalizeRelPath(row?.raw_image_path || rawRow?.raw_image_path);
+  const finalCandidates = (Array.isArray(row?.detections) ? row.detections : []).map((candidate, index) =>
+    normalizeCandidate(candidate, index, "final", key),
+  );
+  const rawCandidates = (Array.isArray(rawRow?.raw_candidates) ? rawRow.raw_candidates : []).map((candidate, index) =>
+    normalizeCandidate(candidate, index, "raw", key),
+  );
+  const roiInsights = buildRoiInsights(finalCandidates, rawCandidates, key);
+
+  return {
+    key,
+    eventIndex,
+    eventType: row?.event_type ?? rawRow?.event_type ?? "detection",
+    timestampMs: safeNumber(row?.timestamp_ms ?? rawRow?.timestamp_ms),
+    timestampLocal: row?.timestamp_local ?? rawRow?.timestamp_local ?? null,
+    image: {
+      path: imagePath,
+      url: sessionAssetUrl(sessionId, imagePath),
+      annotatedPath: annotatedImagePath,
+      annotatedUrl: sessionAssetUrl(sessionId, annotatedImagePath),
+      rawPath: rawImagePath,
+      rawUrl: sessionAssetUrl(sessionId, rawImagePath),
+    },
+    frame: {
+      width: safeNumber(row?.frame?.width, 1280),
+      height: safeNumber(row?.frame?.height, 720),
+      channels: safeNumber(row?.frame?.channels, 3),
+      timestampMs: safeNumber(row?.frame?.timestamp_ms, null),
+      acceptedCount: safeNumber(row?.accepted_count, 0),
+      weakCount: safeNumber(row?.weak_count, 0),
+      rejectedCount: safeNumber(row?.rejected_count, 0),
+      rawCandidateCount: safeNumber(rawRow?.raw_candidate_count, rawCandidates.length),
+    },
+    cameraView: row?.camera_view ?? null,
+    finalCandidates,
+    rawCandidates,
+    roiInsights,
+    reviewTags: buildReviewTags(finalCandidates, rawCandidates, roiInsights),
+    summary: {
+      final: summarizeCandidates(finalCandidates),
+      raw: summarizeCandidates(rawCandidates),
+      roiCount: roiInsights.length,
+      conflictCount: roiInsights.filter((item) => item.conflict).length,
+      mixedCount: roiInsights.filter((item) => item.hasMixedMaturity).length,
+    },
+  };
+}
+
+function buildDetectionEvidenceMap(detectionEventRows, rawCandidateRows, sessionId) {
+  const rawByKey = new Map();
+  const rawByTimestamp = new Map();
+  for (const row of rawCandidateRows) {
+    const key = evidenceKeyFromRow(row);
+    rawByKey.set(key, row);
+    rawByTimestamp.set(safeNumber(row?.timestamp_ms), row);
+  }
+
+  const map = new Map();
+  for (let index = 0; index < detectionEventRows.length; index += 1) {
+    const row = detectionEventRows[index];
+    const key = evidenceKeyFromRow(row);
+    const rawRow = rawByKey.get(key) ?? rawByTimestamp.get(safeNumber(row?.timestamp_ms)) ?? null;
+    map.set(key, buildDetectionEvidence(row, rawRow, index, sessionId));
+  }
+
+  for (const row of rawCandidateRows) {
+    const key = evidenceKeyFromRow(row);
+    if (!map.has(key)) map.set(key, buildDetectionEvidence(null, row, map.size, sessionId));
+  }
+
+  return map;
+}
+
+function normalizeDetectionEvent(row, eventIndex, sessionId, evidenceByKey = new Map()) {
   const mapPose = row?.map_pose ?? {};
   const detections = Array.isArray(row?.detections) ? row.detections : [];
   const annotatedImagePath = normalizeRelPath(row.annotated_image_path || row.image_path);
   const rawImagePath = normalizeRelPath(row.raw_image_path);
   const imagePath = normalizeRelPath(row.image_path);
+  const evidenceKey = evidenceKeyFromRow(row);
+  const evidence = evidenceByKey.get(evidenceKey) ?? null;
 
   return detections
     .map((detection, detectionIndex) => {
@@ -456,9 +790,13 @@ function normalizeDetectionEvent(row, eventIndex, sessionId) {
       const label = detection.label ?? "unknown";
       const classId = safeNumber(detection.class_id, -1);
       const category = normalizeTomatoCategory(label, classId);
+      const selectedFinalBoxId = evidence?.finalCandidates?.[detectionIndex]?.id ?? `${evidenceKey}:final:${detectionIndex}`;
 
       return {
         id: `${safeNumber(row.timestamp_ms)}-${eventIndex}-${detectionIndex}`,
+        evidenceKey,
+        selectedFinalBoxId,
+        eventDetectionIndex: detectionIndex,
         timestampMs: safeNumber(row.timestamp_ms),
         timestampLocal: row.timestamp_local ?? null,
         eventType: row.event_type ?? "detection",
@@ -473,7 +811,7 @@ function normalizeDetectionEvent(row, eventIndex, sessionId) {
         accepted: !weak,
         clusterPromoted: Boolean(detection.cluster_promoted),
         trackId: safeNumber(detection.track_id, -1),
-        bbox: detection.bbox ?? null,
+        bbox: normalizeBbox(detection.bbox),
         image: {
           path: imagePath,
           url: sessionAssetUrl(sessionId, imagePath),
@@ -755,6 +1093,8 @@ export async function buildDashboardRosMapPayload(sessionId = "") {
   const latestMapPath = path.join(sessionDir, "ros2_map", "latest_map.json");
   const manifestPath = path.join(sessionDir, "session_manifest.json");
   const robotTimelinePath = path.join(sessionDir, "robot_timeline.jsonl");
+  const detectionEventsPath = path.join(sessionDir, "detection_events.jsonl");
+  const rawCandidatesPath = path.join(sessionDir, "raw_candidates.jsonl");
 
   const summary = await readJson(summaryPath);
   const latestMap = (await fileExists(latestMapPath)) ? await readJson(latestMapPath) : null;
@@ -783,10 +1123,14 @@ export async function buildDashboardRosMapPayload(sessionId = "") {
   const poseRows = await readJsonLines(posePath);
   const trail = poseRows.map(poseFromRow).filter(Boolean).slice(-MAX_TRAIL_POINTS);
   const detectionRows = await readJsonLines(detectionsPath);
+  const detectionEventRows = await readJsonLines(detectionEventsPath);
+  const rawCandidateRows = await readJsonLines(rawCandidatesPath);
+  const evidenceByKey = buildDetectionEvidenceMap(detectionEventRows, rawCandidateRows, resolvedSessionId);
   const detections = detectionRows
-    .flatMap((row, eventIndex) => normalizeDetectionEvent(row, eventIndex, resolvedSessionId))
+    .flatMap((row, eventIndex) => normalizeDetectionEvent(row, eventIndex, resolvedSessionId, evidenceByKey))
     .slice(-MAX_DETECTION_MARKERS)
     .sort((a, b) => a.timestampMs - b.timestampMs);
+  const evidenceEvents = [...evidenceByKey.values()].sort((a, b) => a.timestampMs - b.timestampMs);
   const robotRows = await readJsonLines(robotTimelinePath);
   const environmentTimeline = buildEnvironmentTimeline(robotRows);
   const environmentStats = buildEnvironmentStats(environmentTimeline);
@@ -798,6 +1142,8 @@ export async function buildDashboardRosMapPayload(sessionId = "") {
   const mapHeightM = pgm.height * resolutionM;
   const detectionStats = buildDetectionStats(detections, trail, summary);
   const videoPath = await resolveVideoPath(sessionDir, manifest);
+  const hasPreparedPublicVideo = Boolean(videoPath) && (await publicSessionVideoExists(resolvedSessionId, videoPath));
+  const preparedVideoUrl = hasPreparedPublicVideo ? publicSessionVideoUrl(resolvedSessionId, videoPath) : null;
 
   return {
     kind: "rbv2_ros2_slam_dashboard",
@@ -820,13 +1166,17 @@ export async function buildDashboardRosMapPayload(sessionId = "") {
     },
     media: {
       videoPath,
-      videoUrl: sessionAssetUrl(resolvedSessionId, videoPath),
-      mimeType: videoMimeType(videoPath),
-      browserFriendlyNameRecommended: Boolean(videoPath) && !hasLikelyBrowserVideo(videoPath),
+      videoUrl: preparedVideoUrl || sessionAssetUrl(resolvedSessionId, videoPath),
+      originalVideoUrl: sessionAssetUrl(resolvedSessionId, videoPath),
+      preparedVideoUrl,
+      publicPreparedPath: hasPreparedPublicVideo ? publicSessionVideoRelPath(resolvedSessionId, videoPath) : null,
+      mimeType: preparedVideoUrl ? "video/mp4" : videoMimeType(videoPath),
+      source: preparedVideoUrl ? "public/session-media" : "session-file-api",
+      browserFriendlyNameRecommended: Boolean(videoPath) && !preparedVideoUrl && !hasLikelyBrowserVideo(videoPath),
       video: manifest?.video ?? null,
       note:
-        Boolean(videoPath) && !hasLikelyBrowserVideo(videoPath)
-          ? "If this file was exported by OpenCV as MP4V, Chrome/Edge may not play it. Convert it to H.264 and save it as *_browser.mp4 in the same videos folder."
+        Boolean(videoPath) && !preparedVideoUrl && !hasLikelyBrowserVideo(videoPath)
+          ? "Run npm run prepare-dashboard-media before dev/build. It creates a browser-ready H.264 MP4 under public/session-media for Vercel and local hosting."
           : null,
     },
     map: {
@@ -887,6 +1237,7 @@ export async function buildDashboardRosMapPayload(sessionId = "") {
     },
     trail,
     detections,
+    evidenceEvents,
     environment: {
       timeline: environmentTimeline,
       stats: environmentStats,
@@ -895,6 +1246,7 @@ export async function buildDashboardRosMapPayload(sessionId = "") {
       trailPoints: trail.length,
       detectionEvents: detectionRows.length,
       detectionMarkers: detections.length,
+      evidenceEvents: evidenceEvents.length,
       acceptedDetections: detectionStats.strong,
       weakDetections: detectionStats.weak,
       finalDistanceM: detectionStats.estimatedScannedDistanceM,
