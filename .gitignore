@@ -48,3 +48,8 @@ dist/
 build/ 
 .env 
 .env.local 
+# Generated browser-compatible video cache
+/public/session-media/
+
+# Patch-installer backups
+/.data-analysis-*-backup-*/
