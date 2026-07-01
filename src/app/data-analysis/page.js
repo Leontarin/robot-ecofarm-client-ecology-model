@@ -6,7 +6,6 @@ import GreenhouseMap from "./components/GreenhouseMap";
 import MicroclimatePanel from "./components/MicroclimatePanel";
 import PcaPanel from "./components/PcaPanel";
 import ResearchRagPanel from "./components/ResearchRagPanel";
-import RobotDebugPanel from "./components/RobotDebugPanel";
 import { buildSessionTimelineBuckets, getRobotPoseAtOrBefore } from "./lib/sessionTimeline";
 import { summarizeSpatialModel } from "./lib/spatialModel";
 
@@ -14,7 +13,6 @@ const TABS = [
   { id: "overview", label: "Overview" },
   { id: "map", label: "Greenhouse Map" },
   { id: "microclimate", label: "Microclimate / M5Stick" },
-  { id: "robot-debug", label: "Robot Debug" },
   { id: "pca", label: "PCA" },
   { id: "quality", label: "Data Quality" },
   { id: "rag", label: "Research RAG" },
@@ -331,7 +329,6 @@ export default function DataAnalysisPage() {
         ) : null}
 
         {payload && activeTab === "microclimate" ? <MicroclimatePanel payload={microclimatePayload} sessionLabel={payload.session?.label ?? payload.selectedSessionId} /> : null}
-        {payload && activeTab === "robot-debug" ? <RobotDebugPanel sessionId={payload.selectedSessionId} /> : null}
         {payload && activeTab === "pca" ? <PcaPanel envSeries={payload.environment.series} tomatoSamples={activeLandmarks} /> : null}
         {payload && activeTab === "quality" ? <DataQualityPanel payload={payload} activeLandmarks={activeLandmarks} /> : null}
         {activeTab === "rag" ? <ResearchRagPanel /> : null}
